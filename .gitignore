@@ -1,0 +1,7 @@
+node_modules/
+dist/
+designs/
+.design-canvas/
+*.log
+.DS_Store
+.codegraph/
