@@ -132,6 +132,7 @@ api.post('/docs/import', (req, res) => {
     d.pageOrder = body.pageOrder;
     d.nodes = body.nodes;
     d.variables = body.variables ?? {};
+    d.comments = body.comments ?? {};
   });
   hub.broadcast(null, { t: 'docs-changed' });
   res.json({ id: doc.id, name: doc.name });

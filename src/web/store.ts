@@ -4,7 +4,16 @@ import type { DesignDoc, DocPatch, Origin } from '../shared/types.ts';
 import { applyPatch, diffDocs, invertPatch, isEmptyPatch, mergePatches } from '../shared/patch.ts';
 import { isPageId, pageOf } from '../shared/doc.ts';
 
-export type Tool = 'move' | 'hand' | 'frame' | 'rect' | 'ellipse' | 'text' | 'image';
+export type Tool = 'move' | 'hand' | 'frame' | 'rect' | 'ellipse' | 'text' | 'image' | 'comment';
+
+export interface DraftComment {
+  pageId: string;
+  nodeId?: string;
+  x: number;
+  y: number;
+  pageX: number;
+  pageY: number;
+}
 
 export interface Viewport {
   x: number;
@@ -72,7 +81,11 @@ export interface EditorState {
   tool: Tool;
   viewport: Viewport;
   editingTextId: string | null;
-  leftTab: 'layers' | 'assets' | 'tokens';
+  leftTab: 'layers' | 'assets' | 'tokens' | 'comments';
+  openThreadId: string | null;
+  draftComment: DraftComment | null;
+  showComments: boolean;
+  showResolved: boolean;
   rightTab: 'design' | 'code' | 'ai';
   peers: Peer[];
   mcpClients: McpClientInfo[];
@@ -101,6 +114,10 @@ export const useEditor = create<EditorState>(() => ({
   viewport: { x: 0, y: 0, zoom: 1 },
   editingTextId: null,
   leftTab: 'layers',
+  openThreadId: null,
+  draftComment: null,
+  showComments: true,
+  showResolved: false,
   rightTab: 'design',
   peers: [],
   mcpClients: [],
@@ -288,7 +305,7 @@ export function setSelection(ids: string[]) {
 }
 
 export function setTool(tool: Tool) {
-  setState({ tool, editingTextId: null });
+  setState((s) => ({ tool, editingTextId: null, draftComment: tool === 'comment' ? s.draftComment : null }));
 }
 
 let toastId = 0;
@@ -316,5 +333,7 @@ export function resetEditor() {
     flash: {},
     overlay: emptyOverlay,
     connected: false,
+    openThreadId: null,
+    draftComment: null,
   });
 }

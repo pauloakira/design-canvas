@@ -1,6 +1,25 @@
 import { getState, loadSnapshot, onAck, onRemotePatch, setSender, setState, toast, type McpClientInfo } from './store.ts';
 import { handleEditorRequest } from './editor/requests.ts';
 import { revealNodes, zoomToNodes } from './editor/viewport.ts';
+import { openThread } from './canvas/Comments.tsx';
+import type { DocPatch, Origin } from '../shared/types.ts';
+
+/** Toast when someone else (an agent or a teammate) comments. */
+function announceComments(patch: DocPatch, origin: Origin) {
+  if (!patch.comments || origin.kind === 'system') return;
+  for (const t of Object.values(patch.comments)) {
+    if (!t) continue;
+    const last = t.messages[t.messages.length - 1];
+    if (!last || Date.now() - last.createdAt > 10000) continue;
+    const who = origin.kind === 'agent' ? origin.name : last.author;
+    const verb = t.messages.length === 1 ? 'commented' : 'replied';
+    toast(`${who} ${verb} on #${t.number}: ${last.text.slice(0, 80)}${last.text.length > 80 ? '…' : ''}`, {
+      kind: 'agent',
+      ms: 8000,
+      action: { label: 'View', run: () => openThread(t.id) },
+    });
+  }
+}
 
 let ws: WebSocket | null = null;
 let currentDoc: string | null = null;
@@ -69,6 +88,7 @@ function handle(msg: any) {
       break;
     case 'patch':
       onRemotePatch(msg.patch, msg.origin);
+      announceComments(msg.patch, msg.origin);
       break;
     case 'presence':
       setState({ peers: (msg.peers ?? []).filter((p: any) => p.id !== getState().clientId) });
@@ -104,6 +124,22 @@ export function sendPresence(active = false) {
     const s = getState();
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'presence', selection: s.selection, pageId: s.pageId, active }));
   }, 60);
+}
+
+export function getUserName(): string {
+  return userName();
+}
+
+export function setUserName(name: string) {
+  const n = name.trim().slice(0, 40);
+  if (!n) return;
+  try {
+    localStorage.setItem('dc:name', n);
+  } catch {
+    /* ignore */
+  }
+  // Rejoin so collaborators see the new name.
+  if (ws?.readyState === WebSocket.OPEN && currentDoc) ws.send(JSON.stringify({ t: 'join', docId: currentDoc, name: n }));
 }
 
 function userName(): string {

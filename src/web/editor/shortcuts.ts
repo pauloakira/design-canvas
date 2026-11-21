@@ -29,6 +29,7 @@ export const SHORTCUTS: Array<[string, string]> = [
   ['O', 'Ellipse'],
   ['T', 'Text'],
   ['⇧ I', 'Insert image'],
+  ['C  ·  ⇧ C', 'Comment · show/hide comments'],
   ['⌘ Z  /  ⇧⌘ Z', 'Undo / redo'],
   ['⌘ C  ⌘ X  ⌘ V', 'Copy / cut / paste'],
   ['⌘ D', 'Duplicate'],
@@ -91,6 +92,7 @@ export function installShortcuts(): () => void {
     else if (e.key === 'Delete' || e.key === 'Backspace') deleteSelection();
     else if (e.key === 'Escape') {
       if (s.contextMenu) setState({ contextMenu: null });
+      else if (s.draftComment || s.openThreadId) setState({ draftComment: null, openThreadId: null });
       else if (s.dialog) setState({ dialog: null });
       else if (s.tool !== 'move') setTool('move');
       else selectParent();
@@ -106,6 +108,7 @@ export function installShortcuts(): () => void {
     else if (e.shiftKey && (e.key === ')' || e.code === 'Digit0')) setZoom(1);
     else if (e.shiftKey && k === 'a') addAutoLayout();
     else if (e.shiftKey && k === 'i') pickImage();
+    else if (e.shiftKey && k === 'c') setState({ showComments: !s.showComments, openThreadId: null });
     else if (!e.shiftKey && !e.altKey) {
       if (k === 'v') setTool('move');
       else if (k === 'h') setTool('hand');
@@ -113,6 +116,7 @@ export function installShortcuts(): () => void {
       else if (k === 'r') setTool('rect');
       else if (k === 'o') setTool('ellipse');
       else if (k === 't') setTool('text');
+      else if (k === 'c') setTool(s.tool === 'comment' ? 'move' : 'comment');
       else handled = false;
     } else handled = false;
     if (handled) e.preventDefault();

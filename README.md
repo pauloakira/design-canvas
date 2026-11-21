@@ -70,6 +70,8 @@ Then, from your project:
 
 > Design a 3-screen onboarding flow in Design Canvas, then implement it.
 
+> Address the open comments in Design Canvas and resolve them.
+
 ### MCP tools
 
 | Read | Write |
@@ -80,6 +82,7 @@ Then, from your project:
 | `get_design_context` (React+Tailwind / HTML / React code + tokens, fonts, assets, mapped components) | `create_component` (+ Code Connect), `create_instance` |
 | `get_screenshot` (PNG rendered by the open editor) | `import_html` (HTML / Tailwind → editable auto-layout layers) |
 | `get_variables` | `create_document`, `create_page`, `select_nodes` (reveal in the editor) |
+| `get_comments` (review threads, pinned layers, resolved state) | `add_comment` (new thread or reply), `resolve_comment` |
 
 The server also sends a design guide as MCP `instructions`, so agents know the model.
 
@@ -111,6 +114,7 @@ files in the project folder, e.g. to match your existing UI. API keys are stored
 - Pages, layers panel with drag-and-drop, rename, hide, lock
 - Undo/redo, copy/paste (across tabs and documents), context menu, keyboard shortcuts (⌘/)
 - Dev mode: React + Tailwind, HTML + CSS and React (inline styles) code; CSS inspect; one-click "hand off to your agent" prompts
+- Comments like Figma: press **C** and click to pin a thread to any layer (it follows the layer), reply, resolve, filter in the Comments panel; agents can read, reply to and resolve them over MCP
 - Real-time sync between tabs and agents (agent edits are highlighted live)
 - Export PNG, copy as PNG / code, import/export document JSON
 

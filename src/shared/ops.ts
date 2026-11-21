@@ -448,4 +448,5 @@ export function deletePage(doc: DesignDoc, pageId: string) {
   for (const id of [...(doc.pages[pageId]?.children ?? [])]) deleteNode(doc, id);
   delete doc.pages[pageId];
   doc.pageOrder = doc.pageOrder.filter((p) => p !== pageId);
+  for (const t of Object.values(doc.comments ?? {})) if (t.pageId === pageId) delete doc.comments[t.id];
 }

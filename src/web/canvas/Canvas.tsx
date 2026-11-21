@@ -6,6 +6,7 @@ import { variablesStyleMap } from '../../shared/style.ts';
 import { commit, getState, newGestureKey, setOverlay, setSelection, setState, useEditor, emptyOverlay, type Guide } from '../store.ts';
 import { NodeView } from './NodeView.tsx';
 import { Overlay } from './Overlay.tsx';
+import { CommentsLayer } from './Comments.tsx';
 import { scheduleLayoutSync } from './layoutSync.ts';
 import { intersects, measure, registerViewport, toWorld, unionRects, zoomBy, zoomToFit, type Rect } from '../editor/viewport.ts';
 import { goToMainComponent, insertImageFile, insertInstance } from '../editor/actions.ts';
@@ -41,6 +42,7 @@ type Gesture =
   | { kind: 'draw'; type: 'frame' | 'rect' | 'ellipse' | 'text'; start: { x: number; y: number }; parentId: string; origin: { x: number; y: number }; nodeId: string | null; key: string };
 
 const SNAP_PX = 6;
+const COMMENT_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path d="M2 22V11a9 9 0 1 1 9 9H2z" fill="#0D99FF" stroke="white" stroke-width="1.5"/></svg>')}") 2 22, crosshair`;
 
 function doc(): DesignDoc {
   return getState().doc!;
@@ -256,7 +258,7 @@ export function Canvas() {
     const el = ref.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if ((e.target as HTMLElement).closest?.('[data-editing]')) return;
+      if ((e.target as HTMLElement).closest?.('[data-editing]') || (e.target as HTMLElement).closest?.('.c-popover')) return;
       e.preventDefault();
       const r = el.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) {
@@ -317,7 +319,7 @@ export function Canvas() {
     if (!s.doc) return;
     if (s.contextMenu) setState({ contextMenu: null });
     const target = e.target as HTMLElement;
-    if (target.closest('[data-editing]')) return;
+    if (target.closest('[data-editing]') || target.closest('[data-comment]')) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const w = toWorld(e.clientX, e.clientY);
 
@@ -328,6 +330,22 @@ export function Canvas() {
     }
     if (e.button !== 0) return;
     if (s.editingTextId) setState({ editingTextId: null });
+
+    // Comment tool: click to drop a pin (attached to the layer under the pointer).
+    if (s.tool === 'comment') {
+      if (s.openThreadId || s.draftComment) {
+        setState({ openThreadId: null, draftComment: null });
+        return;
+      }
+      const hit = hitTest(e.clientX, e.clientY);
+      const r = hit ? measure(hit) : null;
+      setState({
+        openThreadId: null,
+        draftComment: { pageId: s.pageId, nodeId: hit ?? undefined, x: r ? w.x - r.x : w.x, y: r ? w.y - r.y : w.y, pageX: w.x, pageY: w.y },
+      });
+      return;
+    }
+    if (s.openThreadId || s.draftComment) setState({ openThreadId: null, draftComment: null });
 
     // Resize handles.
     const handleEl = target.closest('[data-handle]') as HTMLElement | null;
@@ -746,7 +764,7 @@ export function Canvas() {
   };
 
   if (!page) return <div className="canvas" ref={ref} />;
-  const cursor = spaceDown || tool === 'hand' ? 'grab' : tool === 'text' ? 'text' : tool === 'move' ? 'default' : 'crosshair';
+  const cursor = spaceDown || tool === 'hand' ? 'grab' : tool === 'text' ? 'text' : tool === 'move' ? 'default' : tool === 'comment' ? COMMENT_CURSOR : 'crosshair';
   return (
     <div
       className="canvas"
@@ -772,6 +790,7 @@ export function Canvas() {
         ))}
       </div>
       <Overlay />
+      <CommentsLayer />
       {!page.children.length && (
         <div className="canvas-empty">
           <div>Empty page</div>

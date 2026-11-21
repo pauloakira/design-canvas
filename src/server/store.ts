@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { produce } from 'immer';
 import type { DesignDoc, DocMeta, DocPatch, Origin } from '../shared/types.ts';
 import { createDoc, repairDoc } from '../shared/doc.ts';
+import { cleanupThreads } from '../shared/comments.ts';
 import { applyPatch, diffDocs, isEmptyPatch } from '../shared/patch.ts';
 import { DATA_DIR } from './config.ts';
 
@@ -70,6 +71,7 @@ export class DocStore extends EventEmitter {
     if (!fs.existsSync(f)) throw new Error(`Document "${id}" not found`);
     const doc = JSON.parse(fs.readFileSync(f, 'utf8')) as DesignDoc;
     doc.variables ??= {};
+    doc.comments ??= {};
     e = { doc, version: 1 };
     this.docs.set(id, e);
     return e;
@@ -115,6 +117,7 @@ export class DocStore extends EventEmitter {
     // Repair structural inconsistencies produced by concurrent edits.
     next = produce(next, (d) => {
       repairDoc(d);
+      cleanupThreads(d);
     });
     next = { ...next, updatedAt: Date.now() };
     const applied = diffDocs(before, next);

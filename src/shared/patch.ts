@@ -9,6 +9,8 @@ export function diffDocs(a: DesignDoc, b: DesignDoc): DocPatch {
   if (pages) patch.pages = pages;
   const variables = diffMap(a.variables, b.variables);
   if (variables) patch.variables = variables;
+  const comments = diffMap(a.comments ?? {}, b.comments ?? {});
+  if (comments) patch.comments = comments;
   if (a.pageOrder !== b.pageOrder && !sameArray(a.pageOrder, b.pageOrder)) patch.pageOrder = b.pageOrder;
   if (a.name !== b.name) patch.name = b.name;
   return patch;
@@ -31,7 +33,7 @@ function sameArray(a: string[], b: string[]) {
 }
 
 export function isEmptyPatch(p: DocPatch): boolean {
-  return !p.nodes && !p.pages && !p.variables && !p.pageOrder && p.name === undefined;
+  return !p.nodes && !p.pages && !p.variables && !p.comments && !p.pageOrder && p.name === undefined;
 }
 
 /** Returns a new doc with the patch applied (shallow copies of touched maps). */
@@ -40,6 +42,7 @@ export function applyPatch(doc: DesignDoc, patch: DocPatch): DesignDoc {
   if (patch.nodes) next.nodes = applyMap(doc.nodes, patch.nodes);
   if (patch.pages) next.pages = applyMap(doc.pages, patch.pages);
   if (patch.variables) next.variables = applyMap(doc.variables, patch.variables);
+  if (patch.comments) next.comments = applyMap(doc.comments ?? {}, patch.comments);
   if (patch.pageOrder) next.pageOrder = patch.pageOrder;
   if (patch.name !== undefined) next.name = patch.name;
   return next;
@@ -70,6 +73,10 @@ export function invertPatch(before: DesignDoc, patch: DocPatch): DocPatch {
     inv.variables = {};
     for (const k in patch.variables) inv.variables[k] = before.variables[k] ?? null;
   }
+  if (patch.comments) {
+    inv.comments = {};
+    for (const k in patch.comments) inv.comments[k] = before.comments?.[k] ?? null;
+  }
   if (patch.pageOrder) inv.pageOrder = before.pageOrder;
   if (patch.name !== undefined) inv.name = before.name;
   return inv;
@@ -81,6 +88,7 @@ export function mergePatches(a: DocPatch, b: DocPatch): DocPatch {
     nodes: a.nodes || b.nodes ? { ...a.nodes, ...b.nodes } : undefined,
     pages: a.pages || b.pages ? { ...a.pages, ...b.pages } : undefined,
     variables: a.variables || b.variables ? { ...a.variables, ...b.variables } : undefined,
+    comments: a.comments || b.comments ? { ...a.comments, ...b.comments } : undefined,
     pageOrder: b.pageOrder ?? a.pageOrder,
     name: b.name ?? a.name,
   };

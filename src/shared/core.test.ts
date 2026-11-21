@@ -140,3 +140,44 @@ test('moveNodes preserves visual position across parents and wrapInFrame groups'
   assert.equal(g.x, 50);
   assert.equal(grouped.nodes[rect].x, 0);
 });
+
+test('comment threads: add, reply, resolve, delete, follow layers, page cleanup', async () => {
+  const { addThread, replyToThread, setResolved, deleteMessage, threadsForNode, threadPagePosition, cleanupThreads } = await import('./comments.ts');
+  const { addPage, deletePage, moveNodes: move } = await import('./ops.ts');
+  let card = '';
+  let thread = '';
+  let page2 = '';
+  let doc = docWith((d, page) => {
+    card = createNodes(d, [{ type: 'frame', name: 'Card', x: 100, y: 50, width: 200, height: 100 }], page).ids[0];
+    thread = addThread(d, { pageId: page, nodeId: card, x: 10, y: 20, pageX: 110, pageY: 70, text: ' Make this bigger ', author: 'Ana' }).id;
+    addThread(d, { pageId: page, x: 0, y: 0, pageX: 0, pageY: 0, text: 'Unpinned', author: 'Bo' });
+    replyToThread(d, thread, 'Done!', 'Claude Code', 'agent');
+    page2 = addPage(d, 'Two');
+  });
+  const t = doc.comments[thread];
+  assert.equal(t.number, 1);
+  assert.equal(t.messages[0].text, 'Make this bigger');
+  assert.equal(t.messages[1].authorKind, 'agent');
+  assert.deepEqual(threadsForNode(doc, card).map((x) => x.id), [thread]);
+  doc = produce(doc, (d) => {
+    (d.nodes[card] as any).x = 300;
+  });
+  assert.deepEqual(threadPagePosition(doc, doc.comments[thread]), { x: 310, y: 70 }, 'pin follows its layer');
+  doc = produce(doc, (d) => setResolved(d as DesignDoc, thread, true, 'Ana'));
+  assert.equal(threadsForNode(doc, card).length, 0);
+  assert.equal(threadsForNode(doc, card, true).length, 1);
+  // Moving the layer to another page moves the thread with it.
+  doc = produce(doc, (d) => {
+    move(d as DesignDoc, [card], page2);
+    cleanupThreads(d as DesignDoc);
+  });
+  assert.equal(doc.comments[thread].pageId, page2);
+  doc = produce(doc, (d) => deletePage(d as DesignDoc, page2));
+  assert.equal(doc.comments[thread], undefined, 'deleting a page deletes its threads');
+  const other = Object.values(doc.comments)[0];
+  doc = produce(doc, (d) => deleteMessage(d as DesignDoc, other.id, other.messages[0].id));
+  assert.equal(Object.keys(doc.comments).length, 0, 'deleting the first message deletes the thread');
+  assert.throws(() => produce(doc, (d) => void addThread(d as DesignDoc, { pageId: d.pageOrder[0], x: 0, y: 0, pageX: 0, pageY: 0, text: '  ', author: 'x' })));
+  const p = diffDocs(createDoc(), doc);
+  assert.ok(p.comments === undefined || typeof p.comments === 'object');
+});

@@ -189,6 +189,37 @@ export interface Variable {
   description?: string;
 }
 
+export interface CommentMessage {
+  id: string;
+  author: string;
+  authorKind?: 'user' | 'agent';
+  text: string;
+  createdAt: number;
+  editedAt?: number;
+}
+
+/**
+ * A comment thread pinned on the canvas. When `nodeId` is set the pin follows
+ * that layer and (x, y) is the offset from its top-left corner; otherwise (x, y)
+ * are page coordinates.
+ */
+export interface CommentThread {
+  id: string;
+  /** Sequential number shown on the pin (#1, #2…). */
+  number: number;
+  pageId: string;
+  nodeId?: string;
+  x: number;
+  y: number;
+  /** Page coordinates at creation — fallback if the layer is deleted. */
+  pageX: number;
+  pageY: number;
+  messages: CommentMessage[];
+  resolved?: boolean;
+  resolvedBy?: string;
+  createdAt: number;
+}
+
 export interface DesignDoc {
   id: string;
   name: string;
@@ -199,6 +230,7 @@ export interface DesignDoc {
   pages: Record<string, Page>;
   nodes: Record<string, SceneNode>;
   variables: Record<string, Variable>;
+  comments: Record<string, CommentThread>;
 }
 
 /** Whole-object replacement patch. `null` deletes. */
@@ -207,6 +239,7 @@ export interface DocPatch {
   pages?: Record<string, Page | null>;
   pageOrder?: string[];
   variables?: Record<string, Variable | null>;
+  comments?: Record<string, CommentThread | null>;
   name?: string;
 }
 

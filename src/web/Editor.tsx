@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Code2, Layers, Palette, Sparkles, SlidersHorizontal, Shapes } from 'lucide-react';
+import { Code2, Layers, Palette, Sparkles, SlidersHorizontal, Shapes, MessageCircle } from 'lucide-react';
 import { getState, resetEditor, setState, useEditor } from './store.ts';
 import { connect, disconnect, sendPresence } from './sync.ts';
 import { installShortcuts } from './editor/shortcuts.ts';
@@ -10,6 +10,7 @@ import { Toolbar } from './panels/Toolbar.tsx';
 import { LayersPanel } from './panels/LayersPanel.tsx';
 import { AssetsPanel } from './panels/AssetsPanel.tsx';
 import { TokensPanel } from './panels/TokensPanel.tsx';
+import { CommentsPanel } from './panels/CommentsPanel.tsx';
 import { DesignPanel } from './panels/DesignPanel.tsx';
 import { CodePanel } from './panels/CodePanel.tsx';
 import { AIPanel, useAiRunning } from './panels/AIPanel.tsx';
@@ -76,7 +77,8 @@ export default function Editor({ docId }: { docId: string }) {
 
 function LeftPanel() {
   const tab = useEditor((s) => s.leftTab);
-  const set = (leftTab: 'layers' | 'assets' | 'tokens') => setState({ leftTab });
+  const set = (leftTab: 'layers' | 'assets' | 'tokens' | 'comments') => setState({ leftTab });
+  const open = useEditor((s) => Object.values(s.doc?.comments ?? {}).filter((c) => !c.resolved).length);
   return (
     <aside className="side left">
       <nav className="side-tabs">
@@ -89,11 +91,16 @@ function LeftPanel() {
         <button className={tab === 'tokens' ? 'active' : ''} onClick={() => set('tokens')}>
           <Palette size={13} /> Tokens
         </button>
+        <button className={tab === 'comments' ? 'active' : ''} onClick={() => set('comments')} title="Comments">
+          <MessageCircle size={13} />
+          {open > 0 && <span className="tab-count">{open}</span>}
+        </button>
       </nav>
       <div className="side-body">
         {tab === 'layers' && <LayersPanel />}
         {tab === 'assets' && <AssetsPanel />}
         {tab === 'tokens' && <TokensPanel />}
+        {tab === 'comments' && <CommentsPanel />}
       </div>
     </aside>
   );

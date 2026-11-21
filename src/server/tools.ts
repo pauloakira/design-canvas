@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { DesignDoc, SceneNode } from '../shared/types.ts';
 import { descendants, findNodes, isFrameLike, isPageId, pageOf } from '../shared/doc.ts';
 import {
+  absolutePosition,
   addPage,
   createComponent,
   createInstance,
@@ -24,6 +25,8 @@ import { nodeSummary, nodeTree, outline, pageOutline } from '../shared/outline.t
 import { variablesToCss } from '../shared/style.ts';
 import { normalizeProps, type NodeSpec } from '../shared/normalize.ts';
 import { instanceLayers } from '../shared/tree.ts';
+import { addThread, replyToThread, setResolved, threadPagePosition, threadsForNode } from '../shared/comments.ts';
+import type { CommentThread } from '../shared/types.ts';
 import type { DocStore } from './store.ts';
 import type { Hub } from './hub.ts';
 import { PUBLIC_URL } from './config.ts';
@@ -93,6 +96,16 @@ function requireNode(doc: DesignDoc, id: string): SceneNode {
   const n = doc.nodes[id];
   if (!n) throw new Error(`Node "${id}" not found. Use get_document or find_nodes to look up ids.`);
   return n;
+}
+
+
+function formatThread(doc: DesignDoc, t: CommentThread): string {
+  const n = t.nodeId ? doc.nodes[t.nodeId] : undefined;
+  const where = n ? `on ${n.type} "${n.name}" #${n.id} (at ${t.x},${t.y} inside it)` : `on page at ${t.pageX},${t.pageY}${t.nodeId ? ' (its layer was deleted)' : ''}`;
+  const page = doc.pages[t.pageId]?.name ?? t.pageId;
+  const head = `#${t.number} [${t.resolved ? 'resolved' : 'open'}] thread ${t.id} ${where}, page "${page}"`;
+  const msgs = t.messages.map((m) => `    ${m.author}${m.authorKind === 'agent' ? ' (agent)' : ''}: ${m.text}`);
+  return [head, ...msgs].join('\n');
 }
 
 const nodesDescription = `Array of node specs. Each spec: {type, name, ...props, children?: [...]}. type: "frame" | "text" | "rect" | "ellipse" | "image" | "svg" | "component" | "instance" (with componentId).
@@ -172,7 +185,9 @@ export const TOOLS: ToolDef[] = [
       if (!sel) return text(`No editor is open for document "${doc.name}" #${doc.id}. Ask the user to open ${PUBLIC_URL}/d/${doc.id}.`);
       const ids = sel.ids.filter((id) => doc.nodes[id]);
       if (!ids.length) return text(`Document "${doc.name}" #${doc.id}, page #${sel.pageId}: nothing selected.\n\n${pageOutline(doc, sel.pageId ?? doc.pageOrder[0], 2)}`);
-      return text(`Document "${doc.name}" #${doc.id}. Selected ${ids.length} layer(s):\n${outline(doc, ids, 6)}`);
+      const threads = ids.flatMap((id) => threadsForNode(doc, id));
+      const note = threads.length ? `\n\n${threads.length} open comment(s) on the selection — see get_comments.` : '';
+      return text(`Document "${doc.name}" #${doc.id}. Selected ${ids.length} layer(s):\n${outline(doc, ids, 6)}${note}`);
     },
   },
   {
@@ -259,6 +274,8 @@ export const TOOLS: ToolDef[] = [
           'Components used:',
           ...res.components.map((c) => `- "${c.name}" #${c.id}${c.codeConnect ? ` → <${c.codeConnect.name}> from ${c.codeConnect.importPath ?? '(no import path)'}` : ' (no code mapping; implement or map to an existing component)'}`),
         );
+      const threads = threadsForNode(doc, nodeId);
+      if (threads.length) parts.push('', `Open review comments on this design (${threads.length}):`, ...threads.map((t) => formatThread(doc, t)));
       parts.push(
         '',
         'Notes: generated with the same styles the canvas uses. Adapt it to the project: reuse existing components and theme tokens, keep the layout (flex) structure, and use get_screenshot to compare visually.',
@@ -532,6 +549,81 @@ export const TOOLS: ToolDef[] = [
       return text(
         `Created instance #${result} of "${after.nodes[cid].name}".\nOverridable layers:\n${layers.map((l) => `- ${l.key}: ${l.node.type} "${l.node.name}"${l.node.type === 'text' ? ` = ${JSON.stringify((l.node as any).text)}` : ''}`).join('\n')}`,
       );
+    },
+  },
+  {
+    name: 'get_comments',
+    title: 'Get comments',
+    description:
+      'List review comment threads (like Figma comments): who said what, which layer each is pinned to, and whether it is resolved. Use this when asked to "address the comments" or review feedback, then fix the design (or code) and reply / resolve.',
+    shape: {
+      documentId: docIdArg,
+      pageId: z.string().optional().describe('Only threads on this page'),
+      nodeId: z.string().optional().describe('Only threads on this layer or inside it'),
+      includeResolved: z.boolean().optional().describe('Include resolved threads (default false)'),
+    },
+    readOnly: true,
+    handler: (a, ctx) => {
+      const doc = ctx.store.getDoc(resolveDocId(ctx, a.documentId));
+      let threads = a.nodeId ? threadsForNode(doc, a.nodeId, !!a.includeResolved) : Object.values(doc.comments ?? {}).filter((t) => a.includeResolved || !t.resolved);
+      if (a.pageId) threads = threads.filter((t) => t.pageId === a.pageId);
+      threads.sort((x, y) => x.number - y.number);
+      if (!threads.length) return text(a.includeResolved ? 'No comments.' : 'No open comments.');
+      return text(threads.map((t) => formatThread(doc, t)).join('\n\n'));
+    },
+  },
+  {
+    name: 'add_comment',
+    title: 'Add comment / reply',
+    description:
+      'Leave a review comment pinned to a layer (nodeId, optional x/y offset inside it), or reply to an existing thread (threadId). Use it to explain changes you made, ask the designer a question, or flag issues.',
+    shape: {
+      documentId: docIdArg,
+      text: z.string().min(1).describe('Comment text'),
+      threadId: z.string().optional().describe('Reply to this thread instead of starting a new one'),
+      nodeId: z.string().optional().describe('Layer to pin a new thread to'),
+      x: z.number().optional().describe('Offset inside the layer (or page x without nodeId). Default 16'),
+      y: z.number().optional().describe('Offset inside the layer (or page y without nodeId). Default 16'),
+      pageId: z.string().optional().describe('Page for an unpinned comment (defaults to the current page)'),
+    },
+    handler: (a, ctx) => {
+      const docId = resolveDocId(ctx, a.documentId);
+      const doc = ctx.store.getDoc(docId);
+      if (a.nodeId) requireNode(doc, a.nodeId);
+      const { result } = ctx.store.mutate(docId, origin(ctx, 'add_comment'), (d) => {
+        if (a.threadId) return replyToThread(d, a.threadId, a.text, ctx.agent, 'agent').id;
+        if (a.nodeId) {
+          const abs = absolutePosition(d, a.nodeId);
+          const x = a.x ?? 16;
+          const y = a.y ?? 16;
+          return addThread(d, { pageId: pageOf(d, a.nodeId)!, nodeId: a.nodeId, x, y, pageX: abs.x + x, pageY: abs.y + y, text: a.text, author: ctx.agent, authorKind: 'agent' }).id;
+        }
+        if (a.x === undefined || a.y === undefined) throw new Error('Pass nodeId (recommended) or page x/y for a new comment.');
+        const pageId = a.pageId ?? currentPage(ctx, d);
+        return addThread(d, { pageId, x: a.x, y: a.y, pageX: a.x, pageY: a.y, text: a.text, author: ctx.agent, authorKind: 'agent' }).id;
+      });
+      const after = ctx.store.getDoc(docId);
+      return text(`${a.threadId ? 'Replied on' : 'Created'} comment:\n${formatThread(after, after.comments[result])}`);
+    },
+  },
+  {
+    name: 'resolve_comment',
+    title: 'Resolve comment',
+    description: 'Mark a comment thread as resolved (or reopen it). Optionally add a final reply explaining what changed.',
+    shape: {
+      documentId: docIdArg,
+      threadId: z.string(),
+      resolved: z.boolean().optional().describe('false to reopen (default true)'),
+      reply: z.string().optional().describe('Optional reply to add first'),
+    },
+    handler: (a, ctx) => {
+      const docId = resolveDocId(ctx, a.documentId);
+      ctx.store.mutate(docId, origin(ctx, 'resolve_comment'), (d) => {
+        if (a.reply) replyToThread(d, a.threadId, a.reply, ctx.agent, 'agent');
+        setResolved(d, a.threadId, a.resolved !== false, ctx.agent);
+      });
+      const after = ctx.store.getDoc(docId);
+      return text(formatThread(after, after.comments[a.threadId]));
     },
   },
   {

@@ -20,6 +20,10 @@ DESIGNING
 - Prefer creating tokens (colors, spacing, radii) first with set_variables and referencing them, so code generation emits CSS variables.
 - After significant changes call get_screenshot on the root frame to visually check the result, then fix problems with update_nodes.
 
+COMMENTS
+- People leave review comments pinned to layers (like Figma). get_comments lists open threads; get_selection and get_design_context mention comments on what you're looking at.
+- When asked to address feedback: read the threads, make the change, then resolve_comment with a short reply saying what you did. Use add_comment to ask questions or explain decisions instead of guessing.
+
 IMPLEMENTING A DESIGN IN CODE
 - get_selection tells you what the user is pointing at. get_design_context returns React+Tailwind (or HTML/CSS) reference code, tokens, fonts, assets and mapped components for a node. get_screenshot shows how it looks.
 - Treat generated code as a precise reference, not final code: reuse the project's existing components, tokens and conventions; replace absolute values with the project's theme where they match.`;

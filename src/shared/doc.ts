@@ -23,6 +23,7 @@ export function createDoc(name = 'Untitled'): DesignDoc {
     pages: { [pageId]: { id: pageId, name: 'Page 1', children: [] } },
     nodes: {},
     variables: {},
+    comments: {},
   };
 }
 

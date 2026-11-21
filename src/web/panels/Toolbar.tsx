@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Circle, Frame, Hand, Image as ImageIcon, Keyboard, MousePointer2, Plug, Square, Type, Undo2, Redo2, LayoutGrid } from 'lucide-react';
+import { ChevronDown, Circle, MessageCircle, Frame, Hand, Image as ImageIcon, Keyboard, MousePointer2, Plug, Square, Type, Undo2, Redo2, LayoutGrid } from 'lucide-react';
 import { commit, getState, redo, setState, setTool, undo, useEditor, type Tool } from '../store.ts';
 import { pickImage } from '../editor/actions.ts';
 import { setZoom, zoomBy, zoomToFit, zoomToNodes } from '../editor/viewport.ts';
@@ -24,6 +24,7 @@ export function Toolbar() {
   const mcp = [...new Set(mcpRaw.map((c) => c.name))];
   const canUndo = useEditor((s) => s.undoStack.length > 0);
   const canRedo = useEditor((s) => s.redoStack.length > 0);
+  const openComments = useEditor((s) => Object.values(s.doc?.comments ?? {}).filter((c) => !c.resolved).length);
   const [zoomOpen, setZoomOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   return (
@@ -59,6 +60,10 @@ export function Toolbar() {
         ))}
         <button className="tool" title="Image (⇧I)" onClick={pickImage}>
           <ImageIcon size={16} />
+        </button>
+        <button className={`tool ${tool === 'comment' ? 'active' : ''}`} title="Comment (C) · ⇧C show/hide comments" onClick={() => setTool(tool === 'comment' ? 'move' : 'comment')}>
+          <MessageCircle size={16} />
+          {openComments > 0 && <span className="tool-badge">{openComments}</span>}
         </button>
         <span className="sep" />
         <button className="tool" title="Undo (⌘Z)" onClick={undo} disabled={!canUndo}>
