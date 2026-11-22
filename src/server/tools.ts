@@ -28,6 +28,7 @@ import { instanceLayers } from '../shared/tree.ts';
 import { addThread, replyToThread, setResolved, threadPagePosition, threadsForNode } from '../shared/comments.ts';
 import type { CommentThread } from '../shared/types.ts';
 import type { DocStore } from './store.ts';
+import { normalizeFolder } from './store.ts';
 import type { Hub } from './hub.ts';
 import { PUBLIC_URL } from './config.ts';
 
@@ -117,14 +118,21 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_documents',
     title: 'List documents',
-    description: 'List all design documents (files) with ids, names and sizes. Also shows which document is open in the editor.',
-    shape: {},
+    description:
+      'List all design documents (files) with ids, names, folders and sizes, plus all folders. Also shows which document is open in the editor. Pass folder to list only one folder (and its subfolders).',
+    shape: { folder: z.string().optional().describe('Only list documents in this folder path (e.g. "Marketing/Landing") and below') },
     readOnly: true,
-    handler: (_a, ctx) => {
+    handler: (a, ctx) => {
       const sel = ctx.hub.selection();
+      const scope = a.folder ? normalizeFolder(a.folder) : '';
+      const inScope = (f: string) => !scope || f === scope || f.startsWith(scope + '/');
       return json({
         openInEditor: sel?.docId ?? null,
-        documents: ctx.store.list().map((d) => ({ id: d.id, name: d.name, pages: d.pages, nodes: d.nodes, updatedAt: new Date(d.updatedAt).toISOString() })),
+        folders: ctx.store.folders().filter(inScope),
+        documents: ctx.store
+          .list()
+          .filter((d) => inScope(d.folder))
+          .map((d) => ({ id: d.id, name: d.name, folder: d.folder || '(root)', pages: d.pages, nodes: d.nodes, updatedAt: new Date(d.updatedAt).toISOString() })),
         editorUrl: PUBLIC_URL,
       });
     },
@@ -132,12 +140,32 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'create_document',
     title: 'Create document',
-    description: 'Create a new design document and return its id. The user can open it at the returned URL.',
-    shape: { name: z.string().describe('Document name') },
+    description: 'Create a new design document and return its id. Optionally put it in a folder (created if missing). The user can open it at the returned URL.',
+    shape: {
+      name: z.string().describe('Document name'),
+      folder: z.string().optional().describe('Folder path, e.g. "Mobile app" or "Marketing/Landing". Defaults to the root.'),
+    },
     handler: (a, ctx) => {
-      const doc = ctx.store.create(a.name);
+      const doc = ctx.store.create(a.name, undefined, a.folder);
       ctx.hub.broadcast(null, { t: 'docs-changed' });
-      return json({ id: doc.id, name: doc.name, pageId: doc.pageOrder[0], url: `${PUBLIC_URL}/d/${doc.id}` });
+      return json({ id: doc.id, name: doc.name, folder: ctx.store.folderOfDoc(doc.id) || '(root)', pageId: doc.pageOrder[0], url: `${PUBLIC_URL}/d/${doc.id}` });
+    },
+  },
+  {
+    name: 'update_document',
+    title: 'Rename / move document',
+    description: 'Rename a design document and/or move it to another folder ("" = root; missing folders are created).',
+    shape: {
+      documentId: z.string().describe('Document id'),
+      name: z.string().optional().describe('New name'),
+      folder: z.string().optional().describe('Destination folder path; "" for the root'),
+    },
+    handler: (a, ctx) => {
+      if (!ctx.store.exists(a.documentId)) throw new Error(`Document "${a.documentId}" not found. Use list_documents.`);
+      if (a.name?.trim()) ctx.store.applyPatch(a.documentId, { name: a.name.trim().slice(0, 120) }, origin(ctx, 'update_document'));
+      if (a.folder !== undefined) ctx.store.moveDoc(a.documentId, a.folder);
+      ctx.hub.broadcast(null, { t: 'docs-changed' });
+      return json({ id: a.documentId, name: ctx.store.getDoc(a.documentId).name, folder: ctx.store.folderOfDoc(a.documentId) || '(root)' });
     },
   },
   {

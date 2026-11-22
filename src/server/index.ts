@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { WebSocketServer } from 'ws';
 import { ASSETS_DIR, DATA_DIR, HOST, loadSettings, PORT, PROJECT_DIR, PUBLIC_URL, saveSettings, type Settings } from './config.ts';
-import { DocStore } from './store.ts';
+import { DocStore, normalizeFolder } from './store.ts';
 import { Hub } from './hub.ts';
 import { createMcpHandlers } from './mcp.ts';
 import { cancelRun, providerStatus, runChat, type ChatRequest } from './ai.ts';
@@ -81,9 +81,51 @@ api.get('/info', (_req, res) => {
 
 api.get('/docs', (_req, res) => res.json(store.list()));
 api.post('/docs', (req, res) => {
-  const doc = store.create(typeof req.body?.name === 'string' ? req.body.name : 'Untitled');
-  hub.broadcast(null, { t: 'docs-changed' });
-  res.json({ id: doc.id, name: doc.name });
+  try {
+    const doc = store.create(typeof req.body?.name === 'string' ? req.body.name : 'Untitled', undefined, req.body?.folder);
+    hub.broadcast(null, { t: 'docs-changed' });
+    res.json({ id: doc.id, name: doc.name });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+api.get('/docs/:id/meta', (req, res) => {
+  const meta = store.list().find((d) => d.id === req.params.id);
+  if (meta) res.json(meta);
+  else res.status(404).json({ error: 'Not found' });
+});
+
+// Folders are real subdirectories of the designs dir.
+api.get('/folders', (_req, res) => res.json(store.folders()));
+api.post('/folders', (req, res) => {
+  try {
+    const parent = typeof req.body?.parent === 'string' ? req.body.parent : '';
+    const name = String(req.body?.name ?? '').trim();
+    const target = req.body?.path ?? (parent ? `${parent}/${name}` : name);
+    const folder = store.createFolder(target);
+    hub.broadcast(null, { t: 'docs-changed' });
+    res.json({ folder });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+api.patch('/folders', (req, res) => {
+  try {
+    const folder = store.moveFolder(req.body?.from, req.body?.to);
+    hub.broadcast(null, { t: 'docs-changed' });
+    res.json({ folder });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+api.delete('/folders', (req, res) => {
+  try {
+    const r = store.deleteFolder(req.body?.path ?? String(req.query.path ?? ''));
+    hub.broadcast(null, { t: 'docs-changed' });
+    res.json(r);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
 });
 api.post('/docs/:id/duplicate', (req, res) => {
   try {
@@ -105,11 +147,13 @@ api.delete('/docs/:id', (req, res) => {
 });
 api.patch('/docs/:id', (req, res) => {
   try {
-    if (typeof req.body?.name === 'string') store.applyPatch(req.params.id, { name: req.body.name.slice(0, 120) }, { kind: 'system' });
+    if (!store.exists(req.params.id)) throw Object.assign(new Error('Document not found'), { status: 404 });
+    if (typeof req.body?.name === 'string' && req.body.name.trim()) store.applyPatch(req.params.id, { name: req.body.name.trim().slice(0, 120) }, { kind: 'system' });
+    if (typeof req.body?.folder === 'string') store.moveDoc(req.params.id, req.body.folder);
     hub.broadcast(null, { t: 'docs-changed' });
-    res.json({ ok: true });
+    res.json({ ok: true, folder: store.folderOfDoc(req.params.id) });
   } catch (e: any) {
-    res.status(404).json({ error: e.message });
+    res.status(e.status ?? 400).json({ error: e.message });
   }
 });
 api.get('/docs/:id/export', (req, res) => {
@@ -127,13 +171,23 @@ api.post('/docs/import', (req, res) => {
     res.status(400).json({ error: 'Not a Design Canvas document' });
     return;
   }
-  const doc = store.create(String(body.name ?? 'Imported'), (d) => {
-    d.pages = body.pages;
-    d.pageOrder = body.pageOrder;
-    d.nodes = body.nodes;
-    d.variables = body.variables ?? {};
-    d.comments = body.comments ?? {};
-  });
+  let folder = '';
+  try {
+    folder = normalizeFolder(req.query.folder);
+  } catch {
+    /* import into the root */
+  }
+  const doc = store.create(
+    String(body.name ?? 'Imported'),
+    (d) => {
+      d.pages = body.pages;
+      d.pageOrder = body.pageOrder;
+      d.nodes = body.nodes;
+      d.variables = body.variables ?? {};
+      d.comments = body.comments ?? {};
+    },
+    folder,
+  );
   hub.broadcast(null, { t: 'docs-changed' });
   res.json({ id: doc.id, name: doc.name });
 });

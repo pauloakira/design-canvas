@@ -13,7 +13,8 @@ A free, local-first, Figma-style design tool built for engineers — with first-
 - **Design with AI inside the editor.** The AI tab drives the same tools through your
   local **Claude Code** or **Codex** CLI (your existing login, no API key), or directly
   through the **Claude API** / **OpenAI API**.
-- **Files are plain JSON** in `./designs` — commit them next to your code.
+- **Files are plain JSON** in `./designs` — commit them next to your code. Folders in the
+  app are real subdirectories, so `designs/Mobile app/Onboarding/` looks the same in git.
 
 ## Quick start
 
@@ -76,12 +77,12 @@ Then, from your project:
 
 | Read | Write |
 | --- | --- |
-| `list_documents`, `get_document` (layer outline, tokens, components) | `create_nodes` (whole nested screens in one call) |
+| `list_documents` (with folders), `get_document` (layer outline, tokens, components) | `create_nodes` (whole nested screens in one call) |
 | `get_selection` (what the user has selected right now) | `update_nodes`, `delete_nodes`, `move_nodes`, `duplicate_nodes`, `wrap_nodes` |
 | `find_nodes`, `get_node` (full JSON) | `set_variables` (design tokens → CSS variables) |
 | `get_design_context` (React+Tailwind / HTML / React code + tokens, fonts, assets, mapped components) | `create_component` (+ Code Connect), `create_instance` |
 | `get_screenshot` (PNG rendered by the open editor) | `import_html` (HTML / Tailwind → editable auto-layout layers) |
-| `get_variables` | `create_document`, `create_page`, `select_nodes` (reveal in the editor) |
+| `get_variables` | `create_document` (optionally in a folder), `update_document` (rename / move to folder), `create_page`, `select_nodes` (reveal in the editor) |
 | `get_comments` (review threads, pinned layers, resolved state) | `add_comment` (new thread or reply), `resolve_comment` |
 
 The server also sends a design guide as MCP `instructions`, so agents know the model.
@@ -111,6 +112,7 @@ files in the project folder, e.g. to match your existing UI. API keys are stored
 - Typography with Google Fonts
 - Components & instances with text/visibility overrides, detach, and **Code Connect** (map to `@/components/ui/button`)
 - Design tokens (`$primary`, `$space-4`) usable in any field, exported as CSS variables
+- Folders on the home screen: nest them, drag designs and folders between them (or onto the breadcrumb), rename, search; deleting a folder keeps its designs
 - Pages, layers panel with drag-and-drop, rename, hide, lock
 - Undo/redo, copy/paste (across tabs and documents), context menu, keyboard shortcuts (⌘/)
 - Dev mode: React + Tailwind, HTML + CSS and React (inline styles) code; CSS inspect; one-click "hand off to your agent" prompts
@@ -145,7 +147,7 @@ a network.
 ## Scripts
 
 ```bash
-npm test             # shared-core unit tests
+npm test             # shared-core + document store unit tests
 npm run typecheck
 node scripts/mcp-smoke.mjs [--stdio]   # end-to-end MCP check against a running server
 ```

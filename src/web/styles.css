@@ -221,6 +221,23 @@ a {
 .doc-name:hover {
   background: var(--bg-hover);
 }
+.doc-folder {
+  color: var(--text-2);
+  padding: 4px 6px;
+  border-radius: 4px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-folder:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.doc-folder-sep {
+  color: var(--text-3);
+  margin: 0 -2px;
+}
 .doc-name-input {
   background: var(--bg-2);
   border: 1px solid var(--accent);
@@ -1884,9 +1901,202 @@ pre.code.small {
 .footer-note {
   margin-top: 24px;
 }
+button.brand {
+  color: var(--text);
+  padding: 0;
+}
+.home-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 9px;
+  width: 220px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  color: var(--text-3);
+  margin-right: 4px;
+}
+.home-search:focus-within {
+  border-color: var(--accent);
+}
+.home-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+}
+.crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 28px 0 12px;
+  min-height: 30px;
+}
+.crumbs:first-child {
+  margin-top: 0;
+}
+.crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.crumb {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.crumb:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.crumb.current,
+.crumbs > .crumb:only-child {
+  color: var(--text);
+}
+.crumb.drop,
+.folder-card.drop {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.crumb-note {
+  margin-left: 6px;
+}
+.home-error {
+  background: rgba(242, 72, 34, 0.14);
+  border: 1px solid rgba(242, 72, 34, 0.5);
+  color: #ffb4a3;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+.folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.folder-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+.folder-card:hover {
+  border-color: var(--border-2);
+  background: var(--bg-3);
+}
+.folder-icon {
+  flex: none;
+  color: #8b8ff8;
+  fill: rgba(139, 143, 248, 0.22);
+}
+.folder-meta {
+  flex: 1;
+  min-width: 0;
+}
+.folder-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+.folder-card:hover .folder-actions {
+  opacity: 1;
+}
+.folder-rename {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+.crumb .folder-rename {
+  width: 180px;
+}
+.doc-card[draggable='true']:active {
+  cursor: grabbing;
+}
+.empty-note {
+  margin-top: 16px;
+}
+.move-menu {
+  position: fixed;
+  z-index: 50;
+  width: 240px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+}
+.move-menu-title {
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 6px 10px 4px;
+}
+.move-menu-list {
+  max-height: 220px;
+  overflow: auto;
+}
+.move-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 5px;
+  text-align: left;
+  color: var(--text);
+}
+.move-item span:first-of-type {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.move-item:hover:not(:disabled) {
+  background: var(--accent);
+}
+.move-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.move-item.new {
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 5px 5px;
+  margin-top: 4px;
+  color: var(--text-2);
+}
+.move-new {
+  padding: 6px 6px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
 @media (max-width: 860px) {
   .hero-card {
     grid-template-columns: 1fr;
+  }
+  .home-search {
+    width: 140px;
   }
 }
 

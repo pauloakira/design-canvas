@@ -3,7 +3,7 @@ import { ChevronDown, Circle, MessageCircle, Frame, Hand, Image as ImageIcon, Ke
 import { commit, getState, redo, setState, setTool, undo, useEditor, type Tool } from '../store.ts';
 import { pickImage } from '../editor/actions.ts';
 import { setZoom, zoomBy, zoomToFit, zoomToNodes } from '../editor/viewport.ts';
-import { navigate } from '../App.tsx';
+import { folderUrl, navigate } from '../App.tsx';
 
 const TOOLS: Array<{ id: Tool; icon: any; label: string; key: string }> = [
   { id: 'move', icon: MousePointer2, label: 'Move', key: 'V' },
@@ -27,12 +27,33 @@ export function Toolbar() {
   const openComments = useEditor((s) => Object.values(s.doc?.comments ?? {}).filter((c) => !c.resolved).length);
   const [zoomOpen, setZoomOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
+  const docId = useEditor((s) => s.doc?.id);
+  const [folder, setFolder] = useState('');
+  useEffect(() => {
+    if (!docId) return;
+    const load = () =>
+      fetch(`/api/docs/${docId}/meta`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((m) => setFolder(m?.folder ?? ''))
+        .catch(() => {});
+    load();
+    window.addEventListener('focus', load);
+    return () => window.removeEventListener('focus', load);
+  }, [docId]);
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <button className="logo" title="All files" onClick={() => navigate('/')}>
+        <button className="logo" title={folder ? `Back to ${folder}` : 'All files'} onClick={() => navigate(folderUrl(folder))}>
           <LayoutGrid size={16} />
         </button>
+        {folder && (
+          <>
+            <button className="doc-folder" title={`Open folder ${folder}`} onClick={() => navigate(folderUrl(folder))}>
+              {folder.split('/').pop()}
+            </button>
+            <span className="doc-folder-sep">/</span>
+          </>
+        )}
         {editingName ? (
           <input
             className="doc-name-input"

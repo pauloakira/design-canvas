@@ -16,7 +16,7 @@
     "start": "tsx src/server/index.ts",
     "mcp": "node bin/design-canvas-mcp.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test src/shared/*.test.ts"
+    "test": "tsx --test src/shared/*.test.ts src/server/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

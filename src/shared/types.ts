@@ -246,6 +246,8 @@ export interface DocPatch {
 export interface DocMeta {
   id: string;
   name: string;
+  /** Folder path relative to the designs dir ('' = root), e.g. "Marketing/Landing". */
+  folder: string;
   updatedAt: number;
   createdAt: number;
   pages: number;
