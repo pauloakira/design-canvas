@@ -1,0 +1,14 @@
+{
+  "name": "Design Canvas",
+  "id": "design-canvas-local-dev",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:4410", "http://127.0.0.1:4410", "http://localhost:4411", "http://localhost:4420"],
+    "reasoning": "Talks only to the Design Canvas server running on your own machine."
+  }
+}

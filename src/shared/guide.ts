@@ -24,6 +24,9 @@ COMMENTS
 - People leave review comments pinned to layers (like Figma). get_comments lists open threads; get_selection and get_design_context mention comments on what you're looking at.
 - When asked to address feedback: read the threads, make the change, then resolve_comment with a short reply saying what you did. Use add_comment to ask questions or explain decisions instead of guessing.
 
+FIGMA
+- send_to_figma pushes layers to Figma through the Design Canvas Figma plugin: components become main components, instances stay linked, tokens become Figma variables. Sending again updates the same Figma layers, so build reusable parts as components (create_component) and use instances — that is what keeps Figma, the canvas and the code in sync.
+
 IMPLEMENTING A DESIGN IN CODE
 - get_selection tells you what the user is pointing at. get_design_context returns React+Tailwind (or HTML/CSS) reference code, tokens, fonts, assets and mapped components for a node. get_screenshot shows how it looks.
 - Treat generated code as a precise reference, not final code: reuse the project's existing components, tokens and conventions; replace absolute values with the project's theme where they match.`;

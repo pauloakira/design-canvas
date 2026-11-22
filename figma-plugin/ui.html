@@ -1,0 +1,505 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --bg: var(--figma-color-bg, #fff);
+        --bg-2: var(--figma-color-bg-secondary, #f5f5f5);
+        --text: var(--figma-color-text, #111);
+        --text-2: var(--figma-color-text-secondary, #666);
+        --border: var(--figma-color-border, #e5e5e5);
+        --accent: var(--figma-color-bg-brand, #0d99ff);
+        --on-accent: var(--figma-color-text-onbrand, #fff);
+        --danger: var(--figma-color-text-danger, #e03e1a);
+        --success: var(--figma-color-text-success, #14ae5c);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font: 12px/1.45 Inter, system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        font-weight: 600;
+      }
+      .mark {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: linear-gradient(135deg, #6366f1, #0d99ff);
+      }
+      .grow {
+        flex: 1;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--text-2);
+      }
+      .dot.ok {
+        background: var(--success);
+      }
+      .dot.bad {
+        background: var(--danger);
+      }
+      section {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      h3 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-2);
+      }
+      label {
+        display: block;
+        margin: 8px 0 4px;
+        color: var(--text-2);
+      }
+      input,
+      select {
+        width: 100%;
+        height: 30px;
+        padding: 0 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+      }
+      input:focus,
+      select:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      button {
+        height: 30px;
+        padding: 0 12px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--on-accent);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .row > * {
+        flex: 1;
+      }
+      .row > button {
+        flex: none;
+      }
+      .muted {
+        color: var(--text-2);
+      }
+      .check {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 0;
+        color: var(--text);
+        cursor: pointer;
+      }
+      .check input {
+        width: auto;
+        height: auto;
+      }
+      .frames {
+        max-height: 140px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 8px;
+        margin-top: 4px;
+      }
+      .frames .check {
+        padding: 3px 0;
+      }
+      .synced {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0;
+      }
+      .synced div {
+        flex: 1;
+        min-width: 0;
+      }
+      .synced b {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 500;
+      }
+      #log {
+        max-height: 180px;
+        overflow: auto;
+      }
+      .entry {
+        padding: 6px 0;
+        border-bottom: 1px dashed var(--border);
+      }
+      .entry:last-child {
+        border: 0;
+      }
+      .entry.error {
+        color: var(--danger);
+      }
+      .entry ul {
+        margin: 4px 0 0;
+        padding-left: 16px;
+        color: var(--text-2);
+      }
+      .hidden {
+        display: none !important;
+      }
+      code {
+        font: 11px ui-monospace, Menlo, monospace;
+        background: var(--bg-2);
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="mark"></span> Design Canvas
+      <span class="grow"></span>
+      <span id="status" class="muted">Not connected</span>
+      <span id="dot" class="dot"></span>
+    </header>
+
+    <section id="setup">
+      <h3>Connect</h3>
+      <p class="muted" style="margin: 0">
+        Start Design Canvas, then open <b>Connect → Figma</b> in the editor and copy the pairing code.
+      </p>
+      <label for="server">Server</label>
+      <input id="server" value="http://localhost:4410" spellcheck="false" />
+      <label for="token">Pairing code</label>
+      <input id="token" placeholder="DC-XXXX-XXXX-XXXX" spellcheck="false" />
+      <div class="row" style="margin-top: 10px">
+        <span id="setupError" class="muted" style="color: var(--danger)"></span>
+        <button id="connect" class="primary">Connect</button>
+      </div>
+    </section>
+
+    <div id="main" class="hidden">
+      <section>
+        <h3>From the editor</h3>
+        <label class="check"><input type="checkbox" id="auto" checked /> Apply designs sent with “Send to Figma”</label>
+        <p class="muted" style="margin: 6px 0 0">Select frames in Design Canvas and press <code>⌥⇧F</code> (or right-click → Send to Figma).</p>
+      </section>
+
+      <section>
+        <h3>Import</h3>
+        <label for="doc">Design</label>
+        <select id="doc"></select>
+        <label for="page">Page</label>
+        <select id="page"></select>
+        <label>Layers</label>
+        <div id="frames" class="frames"></div>
+        <div class="row" style="margin-top: 10px">
+          <span class="muted" id="importHint">Imports into the current Figma page.</span>
+          <button id="import" class="primary">Import</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="row">
+          <h3 style="margin: 0">In this file</h3>
+          <button id="syncAll">Update all</button>
+        </div>
+        <div id="synced"><p class="muted">Nothing from Design Canvas yet.</p></div>
+      </section>
+
+      <section>
+        <h3>Activity</h3>
+        <div id="log"><p class="muted">No activity yet.</p></div>
+        <div class="row" style="margin-top: 8px"><span></span><button id="disconnect">Disconnect</button></div>
+      </section>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let cfg = { server: 'http://localhost:4410', token: '', auto: true };
+      let connected = false;
+      let docs = [];
+      const pending = new Map();
+      let seq = 0;
+      let busy = Promise.resolve();
+
+      const send = (msg) => parent.postMessage({ pluginMessage: msg }, '*');
+      onmessage = (e) => {
+        const msg = e.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === 'storage') {
+          if (msg.value) cfg = Object.assign(cfg, msg.value);
+          $('server').value = cfg.server;
+          $('token').value = cfg.token;
+          $('auto').checked = cfg.auto !== false;
+          if (cfg.token) connect(true);
+        } else if (msg.type === 'applied') {
+          const p = pending.get(msg.id);
+          if (p) {
+            pending.delete(msg.id);
+            p(msg);
+          }
+        } else if (msg.type === 'synced') renderSynced(msg.value);
+      };
+      send({ type: 'storage-get' });
+
+      const save = () => send({ type: 'storage-set', value: cfg });
+
+      async function api(path, opts = {}) {
+        const r = await fetch(cfg.server.replace(/\/$/, '') + path, {
+          ...opts,
+          headers: { 'x-design-canvas-token': cfg.token, ...(opts.body ? { 'content-type': 'application/json' } : {}), ...(opts.headers || {}) },
+        });
+        if (r.status === 401) throw Object.assign(new Error('Pairing code rejected. Copy it again from Connect → Figma.'), { auth: true });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Request failed (' + r.status + ')');
+        return opts.raw ? r : r.json();
+      }
+
+      function setStatus(state, text) {
+        $('dot').className = 'dot ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'bad' : '');
+        $('status').textContent = text;
+      }
+
+      async function connect(silent) {
+        cfg.server = $('server').value.trim() || 'http://localhost:4410';
+        cfg.token = $('token').value.trim();
+        $('setupError').textContent = '';
+        try {
+          await api('/api/figma/plugin/hello');
+          connected = true;
+          save();
+          $('setup').classList.add('hidden');
+          $('main').classList.remove('hidden');
+          setStatus('ok', 'Connected');
+          await loadDocs();
+          send({ type: 'synced' });
+        } catch (e) {
+          connected = false;
+          setStatus('bad', 'Not connected');
+          $('setup').classList.remove('hidden');
+          $('main').classList.add('hidden');
+          if (!silent || e.auth) $('setupError').textContent = e.auth ? e.message : 'Can’t reach ' + cfg.server + '. Is Design Canvas running?';
+        }
+      }
+      $('connect').onclick = () => connect(false);
+      $('disconnect').onclick = () => {
+        cfg.token = '';
+        $('token').value = '';
+        save();
+        connected = false;
+        setStatus('', 'Not connected');
+        $('setup').classList.remove('hidden');
+        $('main').classList.add('hidden');
+      };
+      $('auto').onchange = () => {
+        cfg.auto = $('auto').checked;
+        save();
+      };
+
+      // ---------------------------------------------------------- import UI
+      async function loadDocs() {
+        docs = await api('/api/figma/plugin/docs');
+        const sel = $('doc');
+        const prev = sel.value;
+        sel.innerHTML = '';
+        for (const d of docs) {
+          const o = document.createElement('option');
+          o.value = d.id;
+          o.textContent = (d.folder ? d.folder + ' / ' : '') + d.name;
+          sel.appendChild(o);
+        }
+        if (prev && docs.some((d) => d.id === prev)) sel.value = prev;
+        renderPages();
+      }
+      function currentDoc() {
+        return docs.find((d) => d.id === $('doc').value);
+      }
+      function renderPages() {
+        const d = currentDoc();
+        const sel = $('page');
+        sel.innerHTML = '';
+        for (const p of d ? d.pages : []) {
+          const o = document.createElement('option');
+          o.value = p.id;
+          o.textContent = p.name;
+          sel.appendChild(o);
+        }
+        renderFrames();
+      }
+      function renderFrames() {
+        const d = currentDoc();
+        const p = d && d.pages.find((x) => x.id === $('page').value);
+        const box = $('frames');
+        box.innerHTML = '';
+        if (!p || !p.layers.length) {
+          box.innerHTML = '<p class="muted">This page is empty.</p>';
+          return;
+        }
+        for (const l of p.layers) {
+          const lab = document.createElement('label');
+          lab.className = 'check';
+          lab.innerHTML = '<input type="checkbox" checked /> <span></span> <span class="muted"></span>';
+          lab.querySelector('input').value = l.id;
+          lab.querySelectorAll('span')[0].textContent = l.name;
+          lab.querySelectorAll('span')[1].textContent = l.type === 'component' ? 'component' : Math.round(l.width) + '×' + Math.round(l.height);
+          box.appendChild(lab);
+        }
+      }
+      $('doc').onchange = renderPages;
+      $('page').onchange = renderFrames;
+      $('doc').onfocus = () => connected && loadDocs().catch(() => {});
+
+      $('import').onclick = () => {
+        const d = currentDoc();
+        if (!d) return;
+        const ids = [...$('frames').querySelectorAll('input:checked')].map((i) => i.value);
+        if (!ids.length) return;
+        enqueue({ docId: d.id, pageId: $('page').value, nodeIds: ids, label: d.name });
+      };
+
+      function renderSynced(syncs) {
+        const box = $('synced');
+        const entries = Object.entries(syncs || {});
+        box.innerHTML = '';
+        if (!entries.length) {
+          box.innerHTML = '<p class="muted">Nothing from Design Canvas yet.</p>';
+          return;
+        }
+        for (const [docId, s] of entries) {
+          const row = document.createElement('div');
+          row.className = 'synced';
+          row.innerHTML = '<div><b></b><span class="muted"></span></div><button>Update</button>';
+          row.querySelector('b').textContent = s.name;
+          row.querySelector('span').textContent = s.keys.length + ' layer' + (s.keys.length === 1 ? '' : 's') + ' · ' + new Date(s.at).toLocaleString();
+          row.querySelector('button').onclick = () => enqueue({ docId, nodeIds: s.keys, label: s.name, reveal: false });
+          box.appendChild(row);
+        }
+      }
+      // "Update all": re-read the file's sync list, then refresh each design.
+      $('syncAll').onclick = () => {
+        const once = (e) => {
+          const msg = e.data.pluginMessage;
+          if (!msg || msg.type !== 'synced') return;
+          removeEventListener('message', once);
+          for (const [docId, s] of Object.entries(msg.value || {})) enqueue({ docId, nodeIds: s.keys, label: s.name, reveal: false });
+        };
+        addEventListener('message', once);
+        send({ type: 'synced' });
+      };
+
+      // ------------------------------------------------------------ pipeline
+      function log(html, cls) {
+        const box = $('log');
+        if (box.querySelector('p.muted')) box.innerHTML = '';
+        const div = document.createElement('div');
+        div.className = 'entry ' + (cls || '');
+        div.innerHTML = html;
+        box.prepend(div);
+        return div;
+      }
+      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+      function enqueue(job) {
+        busy = busy.then(() => run(job)).catch(() => {});
+        return busy;
+      }
+
+      async function run(job) {
+        const entry = log('Importing <b>' + esc(job.label || 'design') + '</b>…');
+        try {
+          const qs = new URLSearchParams({ doc: job.docId });
+          if (job.pageId) qs.set('page', job.pageId);
+          if (job.nodeIds && job.nodeIds.length) qs.set('nodes', job.nodeIds.join(','));
+          const payload = await api('/api/figma/plugin/export?' + qs);
+          const images = {};
+          for (const url of payload.images) {
+            try {
+              const r = await api('/api/figma/plugin/image?url=' + encodeURIComponent(url), { raw: true });
+              images[url] = new Uint8Array(await r.arrayBuffer());
+            } catch (e) {
+              /* reported by the engine */
+            }
+          }
+          const id = ++seq;
+          const result = await new Promise((resolve) => {
+            pending.set(id, resolve);
+            send({ type: 'apply', id, payload, images, reveal: job.reveal !== false });
+          });
+          if (job.outboxId) await api('/api/figma/plugin/result', { method: 'POST', body: JSON.stringify({ id: job.outboxId, ok: result.ok, error: result.error, report: result.report, file: result.file }) }).catch(() => {});
+          if (!result.ok) throw new Error(result.error);
+          const r = result.report;
+          entry.innerHTML =
+            '<b>' +
+            esc(payload.docName) +
+            '</b> — ' +
+            r.created +
+            ' created, ' +
+            r.updated +
+            ' updated' +
+            (r.removed ? ', ' + r.removed + ' removed' : '') +
+            ' · ' +
+            r.components +
+            ' components, ' +
+            r.instances +
+            ' instances' +
+            (r.warnings.length ? '<ul>' + r.warnings.map((w) => '<li>' + esc(w) + '</li>').join('') + '</ul>' : '');
+          send({ type: 'synced' });
+        } catch (e) {
+          entry.className = 'entry error';
+          entry.textContent = (job.label ? job.label + ': ' : '') + e.message;
+          if (e.auth) $('disconnect').onclick();
+        }
+      }
+
+      // Poll for "Send to Figma" requests from the editor.
+      async function poll() {
+        if (connected && cfg.auto) {
+          try {
+            const items = await api('/api/figma/plugin/outbox');
+            setStatus('ok', 'Connected');
+            for (const it of items) enqueue({ docId: it.docId, pageId: it.pageId, nodeIds: it.nodeIds, label: it.label, outboxId: it.id });
+          } catch (e) {
+            setStatus('bad', e.auth ? 'Pairing code rejected' : 'Server offline');
+            if (e.auth) $('disconnect').onclick();
+          }
+        }
+        setTimeout(poll, 1500);
+      }
+      poll();
+    </script>
+  </body>
+</html>

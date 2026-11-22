@@ -22,6 +22,7 @@ import {
 } from '../editor/actions.ts';
 import { zoomToNodes } from '../editor/viewport.ts';
 import { implementPrompt } from './CodePanel.tsx';
+import { sendToFigma } from '../editor/figma.ts';
 
 export function ContextMenu() {
   const menu = useEditor((s) => s.contextMenu);
@@ -67,6 +68,7 @@ export function ContextMenu() {
             {item('Copy as HTML + CSS', () => copyAsCode(nodes[0].id, 'html'), undefined, !one)}
             {item('Copy as PNG', () => copyAsPng(nodes[0].id), undefined, !one)}
             {item('Copy prompt for Claude Code / Codex', () => navigator.clipboard.writeText(implementPrompt(doc.name, doc.id, nodes[0].name, nodes[0].id)), undefined, !one)}
+            {item('Send to Figma', () => sendToFigma(sel), '⌥⇧F')}
             <hr />
             {item('Group selection', () => groupSelection(false), '⌘G')}
             {item('Frame with auto layout', () => addAutoLayout(), '⇧A')}
@@ -89,6 +91,7 @@ export function ContextMenu() {
           <>
             {item('Paste', async () => pasteText(await navigator.clipboard.readText()), '⌘V')}
             {item('Select all', selectAll, '⌘A')}
+            {item('Send page to Figma', () => sendToFigma([]), '⌥⇧F')}
             {item('Design with AI…', () => setState({ rightTab: 'ai' }))}
           </>
         )}

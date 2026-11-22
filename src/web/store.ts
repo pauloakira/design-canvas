@@ -94,6 +94,8 @@ export interface EditorState {
   overlay: OverlayState;
   toasts: Toast[];
   dialog: null | 'connect' | 'settings' | 'shortcuts';
+  /** Tab to open in the Connect dialog. */
+  connectTab: null | 'claude' | 'codex' | 'other' | 'figma';
   contextMenu: { x: number; y: number } | null;
   layoutTick: number;
   undoStack: HistoryEntry[];
@@ -126,6 +128,7 @@ export const useEditor = create<EditorState>(() => ({
   overlay: emptyOverlay,
   toasts: [],
   dialog: null,
+  connectTab: null,
   contextMenu: null,
   layoutTick: 0,
   undoStack: [],

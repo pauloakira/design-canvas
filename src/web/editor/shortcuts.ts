@@ -1,5 +1,6 @@
 import { getState, redo, setState, setTool, undo } from '../store.ts';
 import { keyState } from './keys.ts';
+import { sendToFigma } from './figma.ts';
 import {
   addAutoLayout,
   copySelection,
@@ -30,6 +31,7 @@ export const SHORTCUTS: Array<[string, string]> = [
   ['T', 'Text'],
   ['⇧ I', 'Insert image'],
   ['C  ·  ⇧ C', 'Comment · show/hide comments'],
+  ['⌥ ⇧ F', 'Send selection (or page) to Figma'],
   ['⌘ Z  /  ⇧⌘ Z', 'Undo / redo'],
   ['⌘ C  ⌘ X  ⌘ V', 'Copy / cut / paste'],
   ['⌘ D', 'Duplicate'],
@@ -106,6 +108,7 @@ export function installShortcuts(): () => void {
     } else if (e.shiftKey && (e.key === '!' || e.code === 'Digit1')) zoomToFit();
     else if (e.shiftKey && (e.key === '@' || e.code === 'Digit2')) zoomToNodes(s.selection, 4);
     else if (e.shiftKey && (e.key === ')' || e.code === 'Digit0')) setZoom(1);
+    else if (e.shiftKey && e.altKey && e.code === 'KeyF') sendToFigma();
     else if (e.shiftKey && k === 'a') addAutoLayout();
     else if (e.shiftKey && k === 'i') pickImage();
     else if (e.shiftKey && k === 'c') setState({ showComments: !s.showComments, openThreadId: null });

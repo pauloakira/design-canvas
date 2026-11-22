@@ -67,7 +67,9 @@ export function Dialogs() {
 
 function ConnectDialog({ onClose }: { onClose: () => void }) {
   const [info, setInfo] = useState<Info | null>(null);
-  const [tab, setTab] = useState<'claude' | 'codex' | 'other'>('claude');
+  const initialTab = useEditor((s) => s.connectTab);
+  const [tab, setTab] = useState<'claude' | 'codex' | 'other' | 'figma'>(initialTab ?? 'claude');
+  useEffect(() => () => setState({ connectTab: null }), []);
   const clients = useEditor((s) => s.mcpClients);
   useEffect(() => {
     fetch('/api/info')
@@ -110,7 +112,11 @@ function ConnectDialog({ onClose }: { onClose: () => void }) {
         <button className={tab === 'other' ? 'active' : ''} onClick={() => setTab('other')}>
           Claude Desktop · Cursor · others
         </button>
+        <button className={tab === 'figma' ? 'active' : ''} onClick={() => setTab('figma')}>
+          Figma
+        </button>
       </div>
+      {tab === 'figma' && <FigmaSetup />}
       {tab === 'claude' && (
         <div className="connect-body">
           <h3>1. Register the server (once)</h3>
@@ -153,6 +159,69 @@ function ConnectDialog({ onClose }: { onClose: () => void }) {
         ))}
       </details>
     </Modal>
+  );
+}
+
+function FigmaSetup() {
+  const [st, setSt] = useState<{ token: string; pluginConnected: boolean; manifestPath: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetch('/api/figma/status')
+        .then((r) => r.json())
+        .then((d) => alive && setSt(d))
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 2000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+  if (!st) return null;
+  return (
+    <div className="connect-body">
+      <p className="hint" style={{ marginTop: 0 }}>
+        Send frames to Figma as <b>real Figma layers</b>: auto layout stays auto layout, components become main components, instances stay linked to them, and tokens become
+        Figma variables (with <code>var(--name)</code> code syntax). Sending again <b>updates the same layers</b>, so a component change here reaches every instance in Figma.
+      </p>
+      <h3>1. Install the plugin (once, in the Figma desktop app)</h3>
+      <p className="hint">
+        Plugins → Development → <b>Import plugin from manifest…</b> and pick:
+      </p>
+      <Cmd text={st.manifestPath} />
+      <h3>2. Open it in your Figma file and paste the pairing code</h3>
+      <Cmd text={st.token} />
+      <p className="hint">
+        The code lets only your plugin talk to this server.{' '}
+        <button
+          className="linkbtn"
+          onClick={async () => {
+            if (!confirm('Reset the pairing code? The plugin will need the new code.')) return;
+            await fetch('/api/figma/token/reset', { method: 'POST' });
+            setSt({ ...st, token: (await (await fetch('/api/figma/status')).json()).token });
+          }}
+        >
+          Reset code
+        </button>
+      </p>
+      <h3>3. Send</h3>
+      <p className="hint">
+        Select frames or components and press <kbd>⌥⇧F</kbd> (or right-click → <b>Send to Figma</b>). With nothing selected the whole page is sent. Agents can do it too with the{' '}
+        <code>send_to_figma</code> MCP tool.
+      </p>
+      <div className="mcp-status">
+        {st.pluginConnected ? (
+          <span className="client-pill">
+            <CheckCircle2 size={12} /> Figma plugin connected
+          </span>
+        ) : (
+          <span className="muted small">
+            <Circle size={10} /> Plugin not connected — open it in Figma
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -29,6 +29,13 @@ import { addThread, replyToThread, setResolved, threadPagePosition, threadsForNo
 import type { CommentThread } from '../shared/types.ts';
 import type { DocStore } from './store.ts';
 import { normalizeFolder } from './store.ts';
+
+type FigmaSender = (docId: string, nodeIds: string[], pageId?: string) => { id: string; pluginConnected: boolean; layers: number };
+let figmaSender: FigmaSender | null = null;
+/** Wired by the server: queues layers for the Design Canvas Figma plugin. */
+export function setFigmaSender(fn: FigmaSender) {
+  figmaSender = fn;
+}
 import type { Hub } from './hub.ts';
 import { PUBLIC_URL } from './config.ts';
 
@@ -166,6 +173,31 @@ export const TOOLS: ToolDef[] = [
       if (a.folder !== undefined) ctx.store.moveDoc(a.documentId, a.folder);
       ctx.hub.broadcast(null, { t: 'docs-changed' });
       return json({ id: a.documentId, name: ctx.store.getDoc(a.documentId).name, folder: ctx.store.folderOfDoc(a.documentId) || '(root)' });
+    },
+  },
+  {
+    name: 'send_to_figma',
+    title: 'Send to Figma',
+    description:
+      'Send layers (default: the current selection, else every top-level layer of the page) to Figma through the Design Canvas Figma plugin. Components become Figma main components, instances stay linked, tokens become Figma variables, and sending again updates the same Figma layers in place. The user must have the plugin open in Figma.',
+    shape: {
+      documentId: docIdArg,
+      nodeIds: z.array(z.string()).optional().describe('Layers to send (top-level frames or components). Defaults to the editor selection, then the whole page.'),
+      pageId: z.string().optional().describe('Page to send when no layers are given'),
+    },
+    handler: (a, ctx) => {
+      if (!figmaSender) throw new Error('Figma bridge is not available in this server.');
+      const docId = resolveDocId(ctx, a.documentId);
+      const sel = ctx.hub.selection(docId);
+      const ids = a.nodeIds?.length ? a.nodeIds : (sel?.ids ?? []);
+      const r = figmaSender(docId, ids, a.pageId ?? sel?.pageId ?? undefined);
+      return json({
+        queued: r.layers,
+        pluginConnected: r.pluginConnected,
+        note: r.pluginConnected
+          ? 'The Figma plugin will import it within a couple of seconds.'
+          : 'Queued, but the Design Canvas plugin is not open in Figma right now. Ask the user to open it (Plugins → Development → Design Canvas); queued sends are applied when it connects (kept for 10 minutes).',
+      });
     },
   },
   {

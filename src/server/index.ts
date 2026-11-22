@@ -12,6 +12,8 @@ import { createMcpHandlers } from './mcp.ts';
 import { cancelRun, providerStatus, runChat, type ChatRequest } from './ai.ts';
 import { TOOLS } from './tools.ts';
 import { seedWelcome } from './seed.ts';
+import { createFigmaBridge, isPluginOrigin, PLUGIN_PREFIX } from './figma.ts';
+import { setFigmaSender } from './tools.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DIST = path.join(ROOT, 'dist');
@@ -42,7 +44,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.status(403).send('Forbidden host');
     return;
   }
-  if (req.headers.origin && !isLocalOrigin(req.headers.origin)) {
+  // The Figma plugin calls from a sandboxed iframe; those routes check a pairing code instead.
+  const pluginRoute = req.path.startsWith(PLUGIN_PREFIX + '/') && isPluginOrigin(req.headers.origin);
+  if (req.headers.origin && !isLocalOrigin(req.headers.origin) && !pluginRoute) {
     res.status(403).send('Forbidden origin');
     return;
   }
@@ -265,6 +269,10 @@ api.post('/ai/chat', (req, res) => {
 });
 api.post('/ai/cancel', (req, res) => res.json({ ok: cancelRun(String(req.body?.runId ?? '')) }));
 
+const figmaBridge = createFigmaBridge(store, hub, ROOT);
+setFigmaSender(figmaBridge.send);
+app.use(PLUGIN_PREFIX, figmaBridge.plugin);
+app.use('/api/figma', figmaBridge.editor);
 app.use('/api', api);
 app.use('/assets', express.static(ASSETS_DIR, { maxAge: '365d', immutable: true }));
 

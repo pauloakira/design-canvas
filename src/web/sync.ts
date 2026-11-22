@@ -2,6 +2,7 @@ import { getState, loadSnapshot, onAck, onRemotePatch, setSender, setState, toas
 import { handleEditorRequest } from './editor/requests.ts';
 import { revealNodes, zoomToNodes } from './editor/viewport.ts';
 import { openThread } from './canvas/Comments.tsx';
+import { announceFigmaResult } from './editor/figma.ts';
 import type { DocPatch, Origin } from '../shared/types.ts';
 
 /** Toast when someone else (an agent or a teammate) comments. */
@@ -111,6 +112,9 @@ function handle(msg: any) {
       handleEditorRequest(msg.kind, msg.payload)
         .then((data) => ws?.send(JSON.stringify({ t: 'response', reqId: msg.reqId, ok: true, data })))
         .catch((err) => ws?.send(JSON.stringify({ t: 'response', reqId: msg.reqId, ok: false, error: String(err?.message ?? err) })));
+      break;
+    case 'figma-result':
+      announceFigmaResult(msg);
       break;
     case 'error':
       console.warn('[sync]', msg.message);

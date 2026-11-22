@@ -84,8 +84,45 @@ Then, from your project:
 | `get_screenshot` (PNG rendered by the open editor) | `import_html` (HTML / Tailwind → editable auto-layout layers) |
 | `get_variables` | `create_document` (optionally in a folder), `update_document` (rename / move to folder), `create_page`, `select_nodes` (reveal in the editor) |
 | `get_comments` (review threads, pinned layers, resolved state) | `add_comment` (new thread or reply), `resolve_comment` |
+| | `send_to_figma` (real Figma layers, components and variables via the plugin) |
 
 The server also sends a design guide as MCP `instructions`, so agents know the model.
+
+## Send to Figma
+
+Designs can be pushed to Figma as **real Figma layers**, not pictures:
+
+| Design Canvas | Figma |
+| --- | --- |
+| Frame with auto layout (gap, padding, justify/align, wrap) | Auto-layout frame |
+| Fixed / hug / fill (incl. `align: stretch`) | Fixed / Hug / Fill container |
+| Component (+ Code Connect) | Main component (description: `Code: <Button /> from '@/components/ui/button'`) |
+| Instance + overrides | Instance linked to that main component, with the same overrides |
+| Tokens (`$primary`, `$space-4`) | Variables bound to fills, strokes, gap, padding, radii, font size (code syntax `var(--primary)`) |
+| Fills, gradients, images, strokes, radii, shadows, blurs, opacity, blend modes, SVG | Same, with CSS geometry converted exactly (e.g. gradient angles) |
+
+**Parity through components:** every Figma layer remembers which Design Canvas layer it came from.
+Sending again **updates the same layers in place**: main components keep their identity, so
+every instance in the Figma file follows a component change, like on the canvas. Removed
+layers are removed; layers added in Figma by hand are kept; frames you moved in Figma stay put.
+
+Setup (once): in the Figma **desktop app**, Plugins → Development → **Import plugin from
+manifest…** → `figma-plugin/manifest.json`. Run it, and paste the pairing code from
+**Connect → Figma** in the editor (the code keeps other web pages from reading your designs).
+
+Then select frames and press **⌥⇧F** (or right-click → **Send to Figma**); with nothing selected
+the whole page is sent. The plugin can also import any design/page itself, and **Update all**
+refreshes everything previously sent to that file. Agents can use the `send_to_figma` MCP tool.
+
+Known differences: fonts must exist in Figma (Google Fonts do; others fall back to Inter with a
+note); text strokes and column wrap have no Figma equivalent; rendering of the same font can
+differ by a pixel or two between the browser and Figma, which hug layouts absorb. The plugin
+lists every approximation after each import.
+
+The plugin source is in `figma-plugin/src` (`engine.js` applies an export, `main.js` is the
+plugin entry); `npm run build:figma` regenerates `figma-plugin/code.js`. The mapping itself lives
+in `src/shared/figma.ts` and is unit-tested, and `figma-plugin/test` runs the engine against a
+fake Figma API to check that re-sending updates in place.
 
 ## In-app AI
 
@@ -118,7 +155,7 @@ files in the project folder, e.g. to match your existing UI. API keys are stored
 - Dev mode: React + Tailwind, HTML + CSS and React (inline styles) code; CSS inspect; one-click "hand off to your agent" prompts
 - Comments like Figma: press **C** and click to pin a thread to any layer (it follows the layer), reply, resolve, filter in the Comments panel; agents can read, reply to and resolve them over MCP
 - Real-time sync between tabs and agents (agent edits are highlighted live)
-- Export PNG, copy as PNG / code, import/export document JSON
+- Export PNG, copy as PNG / code, import/export document JSON, **send to Figma** (components, instances and variables preserved)
 
 ## Architecture
 
@@ -147,7 +184,8 @@ a network.
 ## Scripts
 
 ```bash
-npm test             # shared-core + document store unit tests
+npm test             # shared core, document store, Figma export + plugin engine tests
+npm run build:figma  # rebuild figma-plugin/code.js from figma-plugin/src
 npm run typecheck
 node scripts/mcp-smoke.mjs [--stdio]   # end-to-end MCP check against a running server
 ```

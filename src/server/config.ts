@@ -26,6 +26,8 @@ export interface Settings {
   openaiModel?: string;
   claudeCodeModel?: string;
   codexModel?: string;
+  /** Pairing code the Figma plugin must send. */
+  figmaToken?: string;
 }
 
 export function loadSettings(): Settings {

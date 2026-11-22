@@ -2410,3 +2410,9 @@ button.brand {
 .side.left .side-tabs button:last-child {
   margin-left: auto;
 }
+.linkbtn {
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  font: inherit;
+}

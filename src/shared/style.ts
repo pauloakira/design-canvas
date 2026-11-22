@@ -7,6 +7,12 @@ export type CSSMap = Record<string, string>;
 export const DEFAULT_FONT = 'Inter';
 export const DEFAULT_FONT_SIZE = 16;
 export const DEFAULT_TEXT_COLOR = '#000000';
+/**
+ * Line height text gets on the canvas when its lineHeight is unset ("auto"): it
+ * inherits the editor body's `font: 12px/1.4`. Exporters that need an explicit
+ * value (Figma) use this so the result matches what the canvas shows.
+ */
+export const CANVAS_AUTO_LINE_HEIGHT = 1.4;
 
 const SERIF = /serif|georgia|times|playfair|merriweather|lora|garamond|crimson|libre baskerville/i;
 const MONO = /mono|code|courier|menlo|consolas/i;
