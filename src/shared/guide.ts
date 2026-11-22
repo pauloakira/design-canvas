@@ -25,7 +25,7 @@ COMMENTS
 - When asked to address feedback: read the threads, make the change, then resolve_comment with a short reply saying what you did. Use add_comment to ask questions or explain decisions instead of guessing.
 
 FIGMA
-- send_to_figma pushes layers to Figma through the Design Canvas Figma plugin: components become main components, instances stay linked, tokens become Figma variables. Sending again updates the same Figma layers, so build reusable parts as components (create_component) and use instances — that is what keeps Figma, the canvas and the code in sync.
+- send_to_figma pushes layers to Figma through the Design Canvas Figma plugin: components become main components, instances stay linked, tokens become Figma variables. Sending again updates the same Figma layers, so build reusable parts as components (create_component) and use instances — that is what keeps Figma, the canvas and the code in sync. Designers can also copy Figma layers into Design Canvas with the plugin; those arrive with the same components and tokens.
 
 IMPLEMENTING A DESIGN IN CODE
 - get_selection tells you what the user is pointing at. get_design_context returns React+Tailwind (or HTML/CSS) reference code, tokens, fonts, assets and mapped components for a node. get_screenshot shows how it looks.

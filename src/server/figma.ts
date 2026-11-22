@@ -6,6 +6,7 @@ import type { DocStore } from './store.ts';
 import type { Hub } from './hub.ts';
 import { ASSETS_DIR, loadSettings, PUBLIC_URL, saveSettings } from './config.ts';
 import { buildFigmaExport } from '../shared/figma.ts';
+import { importFromFigma, type FigmaImportPayload } from '../shared/figma-import.ts';
 
 /**
  * Bridge to the Design Canvas Figma plugin (figma-plugin/).
@@ -80,7 +81,7 @@ export function createFigmaBridge(store: DocStore, hub: Hub, rootDir: string) {
     lastSeen = Date.now();
     next();
   });
-  plugin.use(express.json({ limit: '5mb' }));
+  plugin.use((req, res, next) => (req.path === '/asset' || req.path === '/import' ? next() : express.json({ limit: '5mb' })(req, res, next)));
 
   plugin.get('/hello', (_req, res) => res.json({ ok: true, app: 'design-canvas', url: PUBLIC_URL }));
 
@@ -145,6 +146,47 @@ export function createFigmaBridge(store: DocStore, hub: Hub, rootDir: string) {
       res.send(Buffer.from(await r.arrayBuffer()));
     } catch (e: any) {
       res.status(404).json({ error: `Image unavailable: ${e.message}` });
+    }
+  });
+
+  /** Image bytes from a Figma image fill → content-addressed asset URL. */
+  plugin.post('/asset', express.raw({ type: () => true, limit: '40mb' }), (req, res) => {
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || !buf.length) {
+      res.status(400).json({ error: 'Empty image' });
+      return;
+    }
+    const ext =
+      buf[0] === 0x89 && buf[1] === 0x50 ? 'png' : buf[0] === 0xff && buf[1] === 0xd8 ? 'jpg' : buf.slice(0, 3).toString() === 'GIF' ? 'gif' : buf.slice(8, 12).toString() === 'WEBP' ? 'webp' : null;
+    if (!ext) {
+      res.status(400).json({ error: 'Unsupported image format' });
+      return;
+    }
+    const name = `${crypto.createHash('sha1').update(buf).digest('hex').slice(0, 20)}.${ext}`;
+    const file = path.join(ASSETS_DIR, name);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+    res.json({ url: `/assets/${name}` });
+  });
+
+  /** Import serialized Figma layers into a design (new or existing). */
+  plugin.post('/import', express.json({ limit: '50mb' }), (req, res) => {
+    try {
+      const payload = req.body?.payload as FigmaImportPayload;
+      if (!payload || !Array.isArray(payload.roots) || !payload.roots.length) throw new Error('Nothing to import');
+      let docId = typeof req.body?.docId === 'string' ? req.body.docId : '';
+      if (!docId) {
+        const name = String(req.body?.newDocName || payload.roots[0]?.name || payload.fileName || 'From Figma').slice(0, 120);
+        docId = store.create(name, undefined, typeof req.body?.folder === 'string' ? req.body.folder : undefined).id;
+        hub.broadcast(null, { t: 'docs-changed' });
+      }
+      const doc = store.getDoc(docId);
+      const pageId = req.body?.pageId && doc.pages[req.body.pageId] ? String(req.body.pageId) : doc.pageOrder[0];
+      const { result } = store.mutate(docId, { kind: 'agent', name: 'Figma', tool: 'import' }, (d) => importFromFigma(d, payload, { pageId }));
+      hub.broadcast(docId, { t: 'reveal', ids: result.rootIds, agent: 'Figma' });
+      hub.broadcast(docId, { t: 'figma-imported', created: result.created, updated: result.updated, removed: result.removed, warnings: result.warnings.slice(0, 50) });
+      res.json({ ...result, docId, docName: store.getDoc(docId).name, pageId, url: `${PUBLIC_URL}/d/${docId}` });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
   });
 

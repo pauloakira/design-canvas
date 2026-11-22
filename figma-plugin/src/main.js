@@ -3,7 +3,15 @@
 /* global dcCreateApplier */
 var applier = dcCreateApplier();
 
-figma.showUI(__html__, { width: 380, height: 600, themeColors: true, title: 'Design Canvas' });
+figma.showUI(__html__, { width: 380, height: 640, themeColors: true, title: 'Design Canvas' });
+
+function postSelection() {
+  var sel = figma.currentPage.selection;
+  figma.ui.postMessage({ type: 'selection', count: sel.length, names: sel.slice(0, 3).map(function (n) { return n.name; }) });
+}
+figma.on('selectionchange', postSelection);
+figma.on('currentpagechange', postSelection);
+setTimeout(postSelection, 100);
 
 function post(msg) {
   figma.ui.postMessage(msg);
@@ -40,6 +48,23 @@ figma.ui.onmessage = async function (msg) {
         'Design Canvas: ' + r.created + ' created, ' + r.updated + ' updated' + (r.removed ? ', ' + r.removed + ' removed' : '') + (r.warnings.length ? ' · ' + r.warnings.length + ' note(s)' : ''),
       );
       post({ type: 'applied', id: msg.id, ok: true, report: r, file: figma.root.name });
+    } else if (msg.type === 'serialize') {
+      var sel = figma.currentPage.selection.slice();
+      if (!sel.length) {
+        post({ type: 'serialized', id: msg.id, ok: false, error: 'Select one or more layers in Figma first.' });
+        return;
+      }
+      try {
+        var out = await applier.serialize(sel);
+        post({ type: 'serialized', id: msg.id, ok: true, payload: out.payload, images: out.images });
+      } catch (e) {
+        post({ type: 'serialized', id: msg.id, ok: false, error: String((e && e.message) || e) });
+      }
+    } else if (msg.type === 'tag-imported') {
+      await applier.tagImported(msg.docId, msg.docName, msg.keyMap, msg.rootFigmaIds || []);
+      post({ type: 'synced', value: applier.syncedDocs(), file: figma.root.name });
+    } else if (msg.type === 'open-url') {
+      figma.openExternal(msg.url);
     } else if (msg.type === 'notify') {
       figma.notify(msg.text, { error: !!msg.error });
     } else if (msg.type === 'resize') {

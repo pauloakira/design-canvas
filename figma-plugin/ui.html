@@ -159,6 +159,9 @@
         white-space: nowrap;
         font-weight: 500;
       }
+      a {
+        color: var(--accent);
+      }
       #log {
         max-height: 180px;
         overflow: auto;
@@ -220,7 +223,20 @@
       </section>
 
       <section>
-        <h3>Import</h3>
+        <h3>Copy to Design Canvas</h3>
+        <p id="selInfo" class="muted" style="margin: 0">Select layers in Figma.</p>
+        <label for="target">Into</label>
+        <select id="target"></select>
+        <label for="targetPage" id="targetPageLabel">Page</label>
+        <select id="targetPage"></select>
+        <div class="row" style="margin-top: 10px">
+          <span class="muted">Components, instances and variables come along.</span>
+          <button id="toCanvas" class="primary" disabled>Copy</button>
+        </div>
+      </section>
+
+      <section>
+        <h3>Import from Design Canvas</h3>
         <label for="doc">Design</label>
         <select id="doc"></select>
         <label for="page">Page</label>
@@ -256,6 +272,7 @@
       const pending = new Map();
       let seq = 0;
       let busy = Promise.resolve();
+      let selCount = 0;
 
       const send = (msg) => parent.postMessage({ pluginMessage: msg }, '*');
       onmessage = (e) => {
@@ -273,6 +290,16 @@
             pending.delete(msg.id);
             p(msg);
           }
+        } else if (msg.type === 'serialized') {
+          const p = pending.get(msg.id);
+          if (p) {
+            pending.delete(msg.id);
+            p(msg);
+          }
+        } else if (msg.type === 'selection') {
+          selCount = msg.count;
+          $('selInfo').textContent = msg.count ? msg.count + ' layer' + (msg.count === 1 ? '' : 's') + ' selected: ' + msg.names.join(', ') + (msg.count > 3 ? '…' : '') : 'Select layers in Figma.';
+          $('toCanvas').disabled = !msg.count;
         } else if (msg.type === 'synced') renderSynced(msg.value);
       };
       send({ type: 'storage-get' });
@@ -344,6 +371,30 @@
         }
         if (prev && docs.some((d) => d.id === prev)) sel.value = prev;
         renderPages();
+        const tgt = $('target');
+        const prevT = tgt.value;
+        tgt.innerHTML = '<option value="">New design</option>';
+        for (const d of docs) {
+          const o = document.createElement('option');
+          o.value = d.id;
+          o.textContent = (d.folder ? d.folder + ' / ' : '') + d.name;
+          tgt.appendChild(o);
+        }
+        tgt.value = prevT && docs.some((d) => d.id === prevT) ? prevT : '';
+        renderTargetPages();
+      }
+      function renderTargetPages() {
+        const d = docs.find((x) => x.id === $('target').value);
+        const sel = $('targetPage');
+        sel.innerHTML = '';
+        for (const p of d ? d.pages : []) {
+          const o = document.createElement('option');
+          o.value = p.id;
+          o.textContent = p.name;
+          sel.appendChild(o);
+        }
+        sel.classList.toggle('hidden', !d);
+        $('targetPageLabel').classList.toggle('hidden', !d);
       }
       function currentDoc() {
         return docs.find((d) => d.id === $('doc').value);
@@ -380,6 +431,70 @@
         }
       }
       $('doc').onchange = renderPages;
+      $('target').onchange = renderTargetPages;
+      $('target').onfocus = () => connected && loadDocs().catch(() => {});
+      $('toCanvas').onclick = () => {
+        busy = busy.then(copyToCanvas).catch(() => {});
+      };
+
+      function imageType(bytes) {
+        if (bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png';
+        if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
+        if (bytes[0] === 0x47 && bytes[1] === 0x49) return 'image/gif';
+        return 'application/octet-stream';
+      }
+
+      async function copyToCanvas() {
+        const entry = log('Copying ' + selCount + ' layer' + (selCount === 1 ? '' : 's') + ' to Design Canvas…');
+        try {
+          const id = ++seq;
+          const ser = await new Promise((resolve) => {
+            pending.set(id, resolve);
+            send({ type: 'serialize', id });
+          });
+          if (!ser.ok) throw new Error(ser.error);
+          let json = JSON.stringify(ser.payload);
+          for (const hash of Object.keys(ser.images || {})) {
+            let url = '';
+            try {
+              const bytes = ser.images[hash];
+              url = (await api('/api/figma/plugin/asset', { method: 'POST', body: bytes, headers: { 'content-type': imageType(bytes) } })).url;
+            } catch (e) {
+              /* the importer reports the missing image */
+            }
+            json = json.split('figma-image:' + hash).join(url);
+          }
+          const payload = JSON.parse(json);
+          const docId = $('target').value;
+          const r = await api('/api/figma/plugin/import', {
+            method: 'POST',
+            body: JSON.stringify({ payload, docId: docId || undefined, pageId: docId ? $('targetPage').value : undefined }),
+          });
+          send({ type: 'tag-imported', docId: r.docId, docName: r.docName, keyMap: r.keyMap, rootFigmaIds: payload.roots.map((x) => x.figmaId) });
+          entry.innerHTML =
+            'Copied to <b>' +
+            esc(r.docName) +
+            '</b> — ' +
+            r.created +
+            ' created, ' +
+            r.updated +
+            ' updated' +
+            (r.removed ? ', ' + r.removed + ' removed' : '') +
+            ' · <a href="#" class="open">Open</a>' +
+            (r.warnings.length ? '<ul>' + r.warnings.map((w) => '<li>' + esc(w) + '</li>').join('') + '</ul>' : '');
+          entry.querySelector('.open').onclick = (e) => {
+            e.preventDefault();
+            send({ type: 'open-url', url: r.url });
+          };
+          await loadDocs();
+          $('target').value = r.docId;
+          renderTargetPages();
+        } catch (e) {
+          entry.className = 'entry error';
+          entry.textContent = 'Copy to Design Canvas: ' + e.message;
+          if (e.auth) $('disconnect').onclick();
+        }
+      }
       $('page').onchange = renderFrames;
       $('doc').onfocus = () => connected && loadDocs().catch(() => {});
 

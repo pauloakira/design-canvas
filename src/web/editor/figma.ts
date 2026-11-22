@@ -45,3 +45,13 @@ export function announceFigmaResult(msg: FigmaResult) {
     action: notes ? { label: 'Details', run: () => alert(`Notes from the Figma import:\n\n• ${r.warnings.join('\n• ')}`) } : undefined,
   });
 }
+
+export function announceFigmaImport(msg: { created: number; updated: number; removed: number; warnings: string[] }) {
+  const parts = [msg.created && `${msg.created} created`, msg.updated && `${msg.updated} updated`, msg.removed && `${msg.removed} removed`].filter(Boolean).join(', ') || 'no changes';
+  const notes = msg.warnings.length;
+  toast(`From Figma: ${parts}${notes ? ` · ${notes} note${notes === 1 ? '' : 's'}` : ''}`, {
+    kind: 'agent',
+    ms: notes ? 9000 : 5000,
+    action: notes ? { label: 'Details', run: () => alert(`Notes from the Figma import:\n\n• ${msg.warnings.join('\n• ')}`) } : undefined,
+  });
+}

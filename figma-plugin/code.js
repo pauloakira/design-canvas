@@ -788,7 +788,481 @@ function dcCreateApplier(env) {
     setMeta(figma.root, 'syncs', JSON.stringify(syncs));
   };
 
+
+  // ======================================================================
+  // Figma → Design Canvas: serialize Figma layers into FigmaSpecs (the same
+  // shape the export uses), consumed by src/shared/figma-import.ts.
+  // ======================================================================
+  var VECTORISH = { VECTOR: 1, LINE: 1, STAR: 1, POLYGON: 1, BOOLEAN_OPERATION: 1 };
+  var SKIP = { SLICE: 1, CONNECTOR: 1, STICKY: 1, SHAPE_WITH_TEXT: 1, WIDGET: 1, EMBED: 1, LINK_UNFURL: 1, CODE_BLOCK: 1, STAMP: 1, WASHI_TAPE: 1, HIGHLIGHT: 1, MEDIA: 1, TABLE: 1 };
+
+  function Serializer() {
+    this.warnings = [];
+    this.components = {};
+    this.compPending = {};
+    this.images = {};
+    this.vars = {};
+    this.varTokens = {};
+    this.keys = {};
+    this.usedKeys = {};
+    this.inRoots = {};
+  }
+
+  Serializer.prototype.warn = function (m) {
+    if (this.warnings.indexOf(m) < 0) this.warnings.push(m);
+  };
+
+  /** Stable key: the Design Canvas tag if the layer came from there, else its Figma id. */
+  Serializer.prototype.keyOf = function (node) {
+    if (this.keys[node.id]) return this.keys[node.id];
+    var tag = node.id.charAt(0) === 'I' ? '' : getTag(node);
+    var key = tag && !this.usedKeys[tag] ? tag : 'figma:' + node.id;
+    this.usedKeys[key] = true;
+    this.keys[node.id] = key;
+    return key;
+  };
+
+  Serializer.prototype.variable = async function (alias) {
+    if (!alias || !alias.id) return undefined;
+    if (this.varTokens[alias.id] !== undefined) return this.varTokens[alias.id] || undefined;
+    var v = await figma.variables.getVariableByIdAsync(alias.id);
+    if (!v) {
+      this.varTokens[alias.id] = '';
+      return undefined;
+    }
+    var web = (v.codeSyntax && v.codeSyntax.WEB) || '';
+    var m = web.match(/var\(--([\w-]+)\)/);
+    var parts = v.name.split('/');
+    var token = m ? m[1] : parts.join('-').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
+    // Resolve the value in the collection's default mode (following aliases).
+    var value = null;
+    var cur = v;
+    for (var guard = 0; guard < 8 && cur; guard++) {
+      var col = await figma.variables.getVariableCollectionByIdAsync(cur.variableCollectionId);
+      var raw = cur.valuesByMode[col ? col.defaultModeId : Object.keys(cur.valuesByMode)[0]];
+      if (raw && typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') cur = await figma.variables.getVariableByIdAsync(raw.id);
+      else {
+        value = raw;
+        break;
+      }
+    }
+    if (value === null || v.resolvedType === 'BOOLEAN') {
+      this.varTokens[alias.id] = '';
+      return undefined;
+    }
+    this.varTokens[alias.id] = token;
+    this.vars[token] = { token: token, group: parts.length > 1 ? parts.slice(0, -1).join('/') : undefined, type: v.resolvedType, value: value, description: v.description || undefined };
+    return token;
+  };
+
+  Serializer.prototype.paint = async function (p, nodeName) {
+    var visible = p.visible !== false;
+    var op = p.opacity === undefined ? 1 : p.opacity;
+    if (p.type === 'SOLID') {
+      var out = { type: 'SOLID', color: { r: p.color.r, g: p.color.g, b: p.color.b, a: op }, visible: visible };
+      var tok = p.boundVariables && p.boundVariables.color ? await this.variable(p.boundVariables.color) : undefined;
+      if (tok && op >= 0.999) out.variable = tok;
+      return out;
+    }
+    if (p.type === 'IMAGE') {
+      if (!p.imageHash) return null;
+      if (!this.images[p.imageHash]) this.images[p.imageHash] = true;
+      if (p.scaleMode === 'TILE') this.warn('"' + nodeName + '": tiled images are imported as "cover".');
+      return { type: 'IMAGE', url: 'figma-image:' + p.imageHash, scaleMode: p.scaleMode === 'FIT' ? 'FIT' : p.scaleMode === 'CROP' ? 'CROP' : 'FILL', visible: visible };
+    }
+    if (p.type === 'GRADIENT_LINEAR' || p.type === 'GRADIENT_RADIAL' || p.type === 'GRADIENT_ANGULAR' || p.type === 'GRADIENT_DIAMOND') {
+      if (p.type === 'GRADIENT_ANGULAR' || p.type === 'GRADIENT_DIAMOND') this.warn('"' + nodeName + '": angular/diamond gradients are imported as radial.');
+      return {
+        type: p.type === 'GRADIENT_LINEAR' ? 'GRADIENT_LINEAR' : 'GRADIENT_RADIAL',
+        transform: p.gradientTransform,
+        stops: p.gradientStops.map(function (s) {
+          return { position: s.position, color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a * op } };
+        }),
+        visible: visible,
+      };
+    }
+    this.warn('"' + nodeName + '": ' + p.type.toLowerCase() + ' fills are not supported; skipped.');
+    return null;
+  };
+
+  Serializer.prototype.paints = async function (list, nodeName) {
+    if (!list || list === figma.mixed) return undefined;
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var p = await this.paint(list[i], nodeName);
+      if (p) out.push(p);
+    }
+    return out;
+  };
+
+  Serializer.prototype.effects = async function (node) {
+    if (!('effects' in node) || !node.effects.length) return undefined;
+    var out = [];
+    for (var i = 0; i < node.effects.length; i++) {
+      var e = node.effects[i];
+      if (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') {
+        var fx = { type: e.type, color: { r: e.color.r, g: e.color.g, b: e.color.b, a: e.color.a }, offset: { x: e.offset.x, y: e.offset.y }, radius: e.radius, spread: e.spread || 0, visible: e.visible !== false };
+        var tok = e.boundVariables && e.boundVariables.color ? await this.variable(e.boundVariables.color) : undefined;
+        if (tok) fx.variable = tok;
+        out.push(fx);
+      } else if (e.type === 'LAYER_BLUR' || e.type === 'BACKGROUND_BLUR') {
+        if (e.blurType === 'PROGRESSIVE') this.warn('"' + node.name + '": progressive blur is imported as a uniform blur.');
+        out.push({ type: e.type, radius: e.radius, visible: e.visible !== false });
+      } else this.warn('"' + node.name + '": ' + String(e.type).toLowerCase() + ' effects are not supported; skipped.');
+    }
+    return out.length ? out : undefined;
+  };
+
+  Serializer.prototype.bindings = async function (node, fields) {
+    var b = node.boundVariables || {};
+    var out = {};
+    var any = false;
+    for (var i = 0; i < fields.length; i++) {
+      var alias = b[fields[i]];
+      if (Array.isArray(alias)) alias = alias[0];
+      if (!alias) continue;
+      var tok = await this.variable(alias);
+      if (tok) {
+        out[fields[i]] = tok;
+        any = true;
+      }
+    }
+    return any ? out : undefined;
+  };
+
+  /** Unrotated box (x, y relative to the parent) + CSS rotation, from a Figma transform. */
+  function box(node, m) {
+    var w = node.width;
+    var h = node.height;
+    var cx = m[0][0] * (w / 2) + m[0][1] * (h / 2) + m[0][2];
+    var cy = m[1][0] * (w / 2) + m[1][1] * (h / 2) + m[1][2];
+    var deg = (Math.atan2(m[1][0], m[0][0]) * 180) / Math.PI;
+    return { x: cx - w / 2, y: cy - h / 2, rotation: Math.abs(deg) < 0.01 ? 0 : Math.round(deg * 100) / 100 };
+  }
+
+  function isIconLike(node) {
+    if (!('children' in node) || !node.children.length) return false;
+    if ('layoutMode' in node && node.layoutMode !== 'NONE') return false;
+    if (node.width > 128 || node.height > 128) return false;
+    var ok = true;
+    var vectors = 0;
+    node.findAll(function (n) {
+      if (VECTORISH[n.type] || n.type === 'ELLIPSE' || n.type === 'RECTANGLE') vectors++;
+      else if (n.type !== 'GROUP' && n.type !== 'FRAME') ok = false;
+      if ('fills' in n && n.fills !== figma.mixed) n.fills.forEach(function (f) { if (f.type === 'IMAGE') ok = false; });
+      return false;
+    });
+    return ok && vectors > 0 && node.findAll(function (n) { return VECTORISH[n.type]; }).length > 0;
+  }
+
+  Serializer.prototype.svgSpec = async function (node, spec) {
+    try {
+      spec.svg = await node.exportAsync({ format: 'SVG_STRING' });
+    } catch (e) {
+      this.warn('"' + node.name + '" could not be exported as SVG.');
+      spec.svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+    }
+    spec.kind = 'SVG';
+    // The SVG already contains the rotation and the layer's own fills/strokes/effects.
+    spec.rotation = 0;
+    delete spec.fills;
+    delete spec.strokes;
+    delete spec.effects;
+    delete spec.radius;
+    return spec;
+  };
+
+  Serializer.prototype.node = async function (node, parent, groupOffset, isRoot) {
+    if (SKIP[node.type]) {
+      this.warn(node.type.toLowerCase().replace(/_/g, ' ') + ' layers are not supported; skipped "' + node.name + '".');
+      return null;
+    }
+    var parentAuto = parent && 'layoutMode' in parent && parent.layoutMode !== 'NONE' && parent.layoutMode !== 'GRID';
+    var abs = parentAuto && node.layoutPositioning === 'ABSOLUTE';
+    var b = box(node, isRoot ? node.absoluteTransform : node.relativeTransform);
+    if (groupOffset) {
+      b.x -= groupOffset.x;
+      b.y -= groupOffset.y;
+    }
+    var spec = {
+      key: this.keyOf(node),
+      figmaId: node.id,
+      kind: 'FRAME',
+      name: node.name,
+      x: b.x,
+      y: b.y,
+      width: node.width,
+      height: node.height,
+      rotation: -b.rotation,
+      visible: node.visible !== false,
+      locked: !!node.locked,
+      opacity: 'opacity' in node ? node.opacity : 1,
+      blendMode: 'blendMode' in node ? node.blendMode : 'NORMAL',
+      sizingH: 'layoutSizingHorizontal' in node ? node.layoutSizingHorizontal : 'FIXED',
+      sizingV: 'layoutSizingVertical' in node ? node.layoutSizingVertical : 'FIXED',
+      absolute: !!abs,
+      inFlow: !!parentAuto && !abs,
+    };
+    if (isRoot) {
+      spec.inFlow = false;
+      spec.absolute = false;
+      if (spec.sizingH === 'FILL') spec.sizingH = 'FIXED';
+      if (spec.sizingV === 'FILL') spec.sizingV = 'FIXED';
+    }
+    ['minWidth', 'maxWidth', 'minHeight', 'maxHeight'].forEach(function (k) {
+      if (k in node && node[k] !== null && node[k] !== undefined) spec[k] = node[k];
+    });
+    var fx = await this.effects(node);
+    if (fx) spec.effects = fx;
+    if ('strokes' in node && node.strokes.length && node.type !== 'GROUP') {
+      spec.strokes = await this.paints(node.strokes, node.name);
+      var sw = node.strokeWeight;
+      if (sw === figma.mixed) {
+        sw = Math.max(node.strokeTopWeight || 0, node.strokeRightWeight || 0, node.strokeBottomWeight || 0, node.strokeLeftWeight || 0);
+        this.warn('"' + node.name + '": per-side stroke widths are imported as one ' + sw + 'px stroke.');
+      }
+      spec.strokeWeight = sw;
+      spec.strokeAlign = node.strokeAlign || 'INSIDE';
+      if (node.dashPattern && node.dashPattern.length) spec.dashPattern = node.dashPattern.slice();
+    }
+    if ('topLeftRadius' in node && node.type !== 'ELLIPSE') spec.radius = [node.topLeftRadius, node.topRightRadius, node.bottomRightRadius, node.bottomLeftRadius];
+    var bind = await this.bindings(node, ['itemSpacing', 'counterAxisSpacing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'topLeftRadius', 'topRightRadius', 'bottomRightRadius', 'bottomLeftRadius', 'fontSize', 'lineHeight']);
+    if (bind) spec.bindings = bind;
+    var desc = getMeta(node, 'description') || ('description' in node ? node.description : '');
+
+    switch (node.type) {
+      case 'TEXT':
+        await this.text(node, spec);
+        break;
+      case 'RECTANGLE':
+        spec.kind = 'RECTANGLE';
+        spec.fills = await this.paints(node.fills, node.name);
+        break;
+      case 'ELLIPSE':
+        if (node.arcData && (node.arcData.innerRadius > 0 || Math.abs(node.arcData.endingAngle - node.arcData.startingAngle) < 6.28)) return this.svgSpec(node, spec);
+        spec.kind = 'ELLIPSE';
+        spec.fills = await this.paints(node.fills, node.name);
+        break;
+      case 'INSTANCE':
+        await this.instance(node, spec);
+        break;
+      case 'COMPONENT':
+      case 'COMPONENT_SET':
+      case 'FRAME':
+      case 'SECTION':
+      case 'GROUP': {
+        if (node.type === 'FRAME' && getMeta(node, 'kind') === 'SVG') return this.svgSpec(node, spec);
+        if ((node.type === 'GROUP' || node.type === 'FRAME') && !getTag(node) && isIconLike(node)) return this.svgSpec(node, spec);
+        spec.kind = node.type === 'COMPONENT' ? 'COMPONENT' : 'FRAME';
+        if (node.type === 'COMPONENT_SET') this.warn('Variants in "' + node.name + '" are imported as separate components.');
+        spec.fills = node.type === 'GROUP' ? [] : await this.paints(node.fills, node.name);
+        spec.clipsContent = node.type === 'GROUP' ? false : !!node.clipsContent;
+        if ('layoutMode' in node && node.layoutMode !== 'NONE') {
+          if (node.layoutMode === 'GRID') this.warn('"' + node.name + '": grid layout is imported as free positioning.');
+          else {
+            spec.layout = {
+              mode: node.layoutMode,
+              wrap: node.layoutWrap === 'WRAP',
+              itemSpacing: node.primaryAxisAlignItems === 'SPACE_BETWEEN' ? node.itemSpacing : node.itemSpacing,
+              counterAxisSpacing: node.counterAxisSpacing || 0,
+              padding: [node.paddingTop, node.paddingRight, node.paddingBottom, node.paddingLeft],
+              primaryAxisAlignItems: node.primaryAxisAlignItems,
+              counterAxisAlignItems: node.counterAxisAlignItems,
+            };
+            if (spec.layout.wrap && node.counterAxisSpacing && node.counterAxisSpacing !== node.itemSpacing) this.warn('"' + node.name + '": different row and column gaps are imported as one gap.');
+          }
+        }
+        if (node.type === 'COMPONENT') {
+          var cc = getMeta(node, 'codeConnect');
+          if (cc) {
+            try {
+              spec.codeConnect = JSON.parse(cc);
+            } catch (e) {
+              /* ignore */
+            }
+          }
+          desc = String(desc || '').split('\n').filter(function (l) { return !/^Code: </.test(l); }).join('\n');
+          this.components[spec.key] = spec;
+        }
+        // Children of a group are positioned in the group's parent space.
+        var off = node.type === 'GROUP' ? { x: node.relativeTransform[0][2], y: node.relativeTransform[1][2] } : null;
+        spec.children = [];
+        for (var i = 0; i < node.children.length; i++) {
+          var c = await this.node(node.children[i], node, off, false);
+          if (c) spec.children.push(c);
+        }
+        break;
+      }
+      default:
+        if (VECTORISH[node.type]) return this.svgSpec(node, spec);
+        this.warn('"' + node.name + '" (' + node.type + ') is not supported; skipped.');
+        return null;
+    }
+    if (desc) spec.description = desc;
+    return spec;
+  };
+
+  Serializer.prototype.text = async function (node, spec) {
+    spec.kind = 'TEXT';
+    var segs = node.getStyledTextSegments(['fontName', 'fontSize', 'fills', 'letterSpacing', 'lineHeight', 'textDecoration', 'textCase']);
+    if (segs.length > 1) this.warn('"' + node.name + '": mixed text styles are imported with the first style.');
+    var s = segs[0] || { fontName: { family: 'Inter', style: 'Regular' }, fontSize: 12, fills: [], letterSpacing: { unit: 'PIXELS', value: 0 }, lineHeight: { unit: 'AUTO' }, textDecoration: 'NONE', textCase: 'ORIGINAL' };
+    spec.fills = await this.paints(s.fills, node.name);
+    var ls = s.letterSpacing.unit === 'PERCENT' ? (s.letterSpacing.value * s.fontSize) / 100 : s.letterSpacing.value;
+    var lh = s.lineHeight.unit === 'AUTO' ? { unit: 'AUTO' } : { unit: s.lineHeight.unit, value: s.lineHeight.value };
+    var tc = s.textCase === 'SMALL_CAPS' || s.textCase === 'SMALL_CAPS_FORCED' ? 'ORIGINAL' : s.textCase;
+    if (tc !== s.textCase) this.warn('"' + node.name + '": small caps are not supported.');
+    spec.text = {
+      characters: node.characters,
+      family: s.fontName.family,
+      weight: styleWeight(s.fontName.style),
+      italic: /italic|oblique/i.test(s.fontName.style),
+      fontSize: s.fontSize,
+      lineHeight: lh,
+      letterSpacing: ls,
+      textAlignHorizontal: node.textAlignHorizontal,
+      textDecoration: s.textDecoration,
+      textCase: tc,
+      textAutoResize: node.textAutoResize === 'TRUNCATE' ? 'NONE' : node.textAutoResize,
+    };
+    if (node.textAlignVertical !== 'TOP' && node.textAutoResize === 'NONE') this.warn('"' + node.name + '": vertical text alignment is imported as top.');
+  };
+
+  Serializer.prototype.instance = async function (node, spec) {
+    spec.kind = 'INSTANCE';
+    var main = await node.getMainComponentAsync();
+    if (!main) {
+      this.warn('Instance "' + node.name + '" has no main component; imported as a frame.');
+      spec.kind = 'FRAME';
+      spec.fills = [];
+      spec.children = [];
+      return;
+    }
+    spec.componentKey = this.keyOf(main);
+    if (!this.components[spec.componentKey] && !this.compPending[spec.componentKey]) {
+      this.compPending[spec.componentKey] = true;
+      var cs = await this.node(main, null, null, true);
+      if (cs) this.components[spec.componentKey] = cs;
+    }
+    // Instance-level visuals only when they differ from the main component.
+    var self = this;
+    var ov = node.overrides || [];
+    var rootFields = [];
+    ov.forEach(function (o) {
+      if (o.id === node.id) rootFields = o.overriddenFields;
+    });
+    if (rootFields.indexOf('fills') < 0) delete spec.fills;
+    else spec.fills = await this.paints(node.fills, node.name);
+    if (rootFields.indexOf('strokes') < 0) {
+      delete spec.strokes;
+      delete spec.strokeWeight;
+      delete spec.strokeAlign;
+      delete spec.dashPattern;
+    }
+    if (!rootFields.some(function (f) { return /Radius$/.test(f) || f === 'cornerRadius'; })) delete spec.radius;
+    if (rootFields.indexOf('effects') < 0) delete spec.effects;
+    var overrides = [];
+    for (var i = 0; i < ov.length; i++) {
+      var o = ov[i];
+      if (o.id === node.id) continue;
+      var sub = await figma.getNodeByIdAsync(o.id);
+      if (!sub) continue;
+      var segs = o.id.split(';').slice(1);
+      var path = [];
+      for (var j = 0; j < segs.length; j++) {
+        var mainNode = await figma.getNodeByIdAsync(segs[j]);
+        if (!mainNode) {
+          path = null;
+          break;
+        }
+        path.push(self.keyOf(mainNode));
+      }
+      if (!path) continue;
+      var fo = { path: path };
+      var used = false;
+      if (o.overriddenFields.indexOf('characters') >= 0 && sub.type === 'TEXT') {
+        fo.characters = sub.characters;
+        used = true;
+      }
+      if (o.overriddenFields.indexOf('visible') >= 0) {
+        fo.visible = sub.visible;
+        used = true;
+      }
+      if (o.overriddenFields.indexOf('fills') >= 0 && 'fills' in sub) {
+        fo.fills = await this.paints(sub.fills, sub.name);
+        used = true;
+      }
+      var other = o.overriddenFields.filter(function (f) { return ['characters', 'visible', 'fills', 'name'].indexOf(f) < 0 && !/^(fontName|fontSize|styledTextSegments|textStyleId)$/.test(f); });
+      if (other.length) this.warn('"' + node.name + '": overrides of ' + other.slice(0, 3).join(', ') + ' are not supported yet; the main component\'s values are used.');
+      if (used) overrides.push(fo);
+    }
+    if (overrides.length) spec.overrides = overrides;
+  };
+
+  Serializer.prototype.run = async function (nodes) {
+    var roots = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var s = await this.node(nodes[i], null, null, true);
+      if (s) roots.push(s);
+    }
+    var inRoots = {};
+    (function mark(list) {
+      list.forEach(function (x) {
+        inRoots[x.key] = true;
+        if (x.children) mark(x.children);
+      });
+    })(roots);
+    var comps = {};
+    for (var k in this.components) if (!inRoots[k]) comps[k] = this.components[k];
+    var images = {};
+    for (var hash in this.images) {
+      var img = figma.getImageByHash(hash);
+      if (img) {
+        try {
+          images[hash] = await img.getBytesAsync();
+        } catch (e) {
+          this.warn('An image could not be read from Figma.');
+        }
+      }
+    }
+    var vars = [];
+    for (var t in this.vars) vars.push(this.vars[t]);
+    return {
+      payload: { format: 'design-canvas/figma-import@1', fileName: figma.root.name, variables: vars, components: comps, roots: roots, warnings: this.warnings },
+      images: images,
+    };
+  };
+
   return {
+    /** Serialize Figma layers for import into Design Canvas. */
+    serialize: async function (nodes) {
+      return new Serializer().run(nodes);
+    },
+    /** After an import: tag the Figma layers with their new Design Canvas ids. */
+    tagImported: async function (docId, docName, keyMap, rootFigmaIds) {
+      var roots = [];
+      for (var fid in keyMap) {
+        var n = await figma.getNodeByIdAsync(fid);
+        if (!n || n.id.charAt(0) === 'I') continue;
+        setTag(n, docId + '/' + keyMap[fid]);
+        if (rootFigmaIds.indexOf(fid) >= 0) roots.push(keyMap[fid]);
+      }
+      var raw = getMeta(figma.root, 'syncs');
+      var syncs = {};
+      try {
+        syncs = raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        syncs = {};
+      }
+      var cur = syncs[docId] || { name: docName, keys: [] };
+      roots.forEach(function (k) {
+        if (cur.keys.indexOf(k) < 0) cur.keys.push(k);
+      });
+      cur.name = docName;
+      cur.at = Date.now();
+      syncs[docId] = cur;
+      setMeta(figma.root, 'syncs', JSON.stringify(syncs));
+    },
     apply: async function (payload, imageBytes, opts) {
       if (!payload || payload.format !== 'design-canvas/figma@1') throw new Error('Not a Design Canvas export');
       var a = new Applier(payload, imageBytes, opts);
@@ -810,7 +1284,15 @@ function dcCreateApplier(env) {
 /* global dcCreateApplier */
 var applier = dcCreateApplier();
 
-figma.showUI(__html__, { width: 380, height: 600, themeColors: true, title: 'Design Canvas' });
+figma.showUI(__html__, { width: 380, height: 640, themeColors: true, title: 'Design Canvas' });
+
+function postSelection() {
+  var sel = figma.currentPage.selection;
+  figma.ui.postMessage({ type: 'selection', count: sel.length, names: sel.slice(0, 3).map(function (n) { return n.name; }) });
+}
+figma.on('selectionchange', postSelection);
+figma.on('currentpagechange', postSelection);
+setTimeout(postSelection, 100);
 
 function post(msg) {
   figma.ui.postMessage(msg);
@@ -847,6 +1329,23 @@ figma.ui.onmessage = async function (msg) {
         'Design Canvas: ' + r.created + ' created, ' + r.updated + ' updated' + (r.removed ? ', ' + r.removed + ' removed' : '') + (r.warnings.length ? ' · ' + r.warnings.length + ' note(s)' : ''),
       );
       post({ type: 'applied', id: msg.id, ok: true, report: r, file: figma.root.name });
+    } else if (msg.type === 'serialize') {
+      var sel = figma.currentPage.selection.slice();
+      if (!sel.length) {
+        post({ type: 'serialized', id: msg.id, ok: false, error: 'Select one or more layers in Figma first.' });
+        return;
+      }
+      try {
+        var out = await applier.serialize(sel);
+        post({ type: 'serialized', id: msg.id, ok: true, payload: out.payload, images: out.images });
+      } catch (e) {
+        post({ type: 'serialized', id: msg.id, ok: false, error: String((e && e.message) || e) });
+      }
+    } else if (msg.type === 'tag-imported') {
+      await applier.tagImported(msg.docId, msg.docName, msg.keyMap, msg.rootFigmaIds || []);
+      post({ type: 'synced', value: applier.syncedDocs(), file: figma.root.name });
+    } else if (msg.type === 'open-url') {
+      figma.openExternal(msg.url);
     } else if (msg.type === 'notify') {
       figma.notify(msg.text, { error: !!msg.error });
     } else if (msg.type === 'resize') {

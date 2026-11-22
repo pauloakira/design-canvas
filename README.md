@@ -88,7 +88,9 @@ Then, from your project:
 
 The server also sends a design guide as MCP `instructions`, so agents know the model.
 
-## Send to Figma
+## Figma ⇄ Design Canvas
+
+### Send to Figma
 
 Designs can be pushed to Figma as **real Figma layers**, not pictures:
 
@@ -119,10 +121,31 @@ note); text strokes and column wrap have no Figma equivalent; rendering of the s
 differ by a pixel or two between the browser and Figma, which hug layouts absorb. The plugin
 lists every approximation after each import.
 
+### Copy from Figma
+
+The same plugin copies the other way: select layers in Figma, pick **New design** or an
+existing design in the plugin's **Copy to Design Canvas** section, and press **Copy**.
+
+- Auto layout → flexbox frames (gap, padding, alignment, wrap, hug/fill), groups and sections → frames
+- Main components → components (with their Code Connect mapping when they came from here), instances →
+  linked instances with text / visibility / fill overrides; components that live elsewhere in the
+  file (or in a library) come along
+- Bound variables → `$tokens` (named from the variable's `var(--…)` code syntax, or its name)
+- Vectors, boolean shapes and small icon frames → SVG; image fills → uploaded assets
+- Mixed text styles, per-side strokes, angular gradients, grid layout and similar are approximated,
+  and each approximation is listed in the plugin
+
+Layers keep their identity both ways: copying a frame that came from Design Canvas back into its
+design **updates those layers in place** (layers deleted in Figma are deleted, new ones are added),
+and layers that started in Figma are tagged on import, so the next copy or send updates them too.
+
+### Plugin source
+
 The plugin source is in `figma-plugin/src` (`engine.js` applies an export, `main.js` is the
 plugin entry); `npm run build:figma` regenerates `figma-plugin/code.js`. The mapping itself lives
-in `src/shared/figma.ts` and is unit-tested, and `figma-plugin/test` runs the engine against a
-fake Figma API to check that re-sending updates in place.
+in `src/shared/figma.ts` (export) and `src/shared/figma-import.ts` (import), and
+`figma-plugin/test` runs the plugin against a fake Figma API: re-sending updates in place, and a
+canvas → Figma → canvas round trip yields the same design.
 
 ## In-app AI
 

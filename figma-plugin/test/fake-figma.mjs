@@ -101,7 +101,25 @@ export function createFakeFigma() {
       this.y = m[1][2];
     }
     get relativeTransform() {
-      return this._transform;
+      const m = this._transform;
+      return m && m[0][2] === this.x && m[1][2] === this.y ? m : [[1, 0, this.x], [0, 1, this.y]];
+    }
+    get absoluteTransform() {
+      let x = 0;
+      let y = 0;
+      for (let n = this; n && n.type !== 'PAGE'; n = n.parent) {
+        x += n.x ?? 0;
+        y += n.y ?? 0;
+      }
+      return [[1, 0, x], [0, 1, y]];
+    }
+    get boundVariables() {
+      const out = {};
+      for (const k in this.bound) out[k] = { type: 'VARIABLE_ALIAS', id: this.bound[k] };
+      return out;
+    }
+    async exportAsync() {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${this.width}" height="${this.height}"><rect width="${this.width}" height="${this.height}"/></svg>`;
     }
   }
   const withCorners = (n) => Object.assign(n, { topLeftRadius: 0, topRightRadius: 0, bottomRightRadius: 0, bottomLeftRadius: 0, cornerRadius: 0 });
@@ -129,7 +147,9 @@ export function createFakeFigma() {
       withCorners(this);
       this.mainComponent = main;
       this.layoutMode = main.layoutMode;
+      this._rootOverrides = new Set();
       this.rebuild();
+      this._ready = true;
     }
     rebuild() {
       this.children.slice().forEach((c) => c.remove());
@@ -151,11 +171,25 @@ export function createFakeFigma() {
     async getMainComponentAsync() {
       return this.mainComponent;
     }
+    set fills(f) {
+      this._fills = f;
+      if (this._ready) this._rootOverrides.add('fills');
+    }
+    get fills() {
+      return this._fills;
+    }
+    get overrides() {
+      const out = [];
+      if (this._rootOverrides.size) out.push({ id: this.id, overriddenFields: [...this._rootOverrides] });
+      for (const n of this.findAll((n) => n._overridden?.size)) out.push({ id: n.id, overriddenFields: [...n._overridden] });
+      return out;
+    }
     swapComponent(c) {
       this.mainComponent = c;
       this.rebuild();
     }
     resetOverrides() {
+      this._rootOverrides = new Set();
       this.rebuild();
     }
   }
@@ -179,6 +213,21 @@ export function createFakeFigma() {
     set characters(s) {
       if (s !== undefined && !loadedFonts.has(fontKey(this._fontName))) throw new Error(`Font ${fontKey(this._fontName)} not loaded`);
       this._characters = s;
+      if (this.id.startsWith('I')) (this._overridden ??= new Set()).add('characters');
+    }
+    getStyledTextSegments() {
+      return [
+        {
+          characters: this._characters,
+          fontName: this._fontName,
+          fontSize: this.fontSize,
+          fills: this.fills,
+          letterSpacing: this.letterSpacing ?? { unit: 'PIXELS', value: 0 },
+          lineHeight: this.lineHeight,
+          textDecoration: this.textDecoration ?? 'NONE',
+          textCase: this.textCase ?? 'ORIGINAL',
+        },
+      ];
     }
     getRangeAllFontNames() {
       return [this._fontName];
@@ -208,8 +257,11 @@ export function createFakeFigma() {
     return n;
   };
 
+  const images = new Map();
   const figma = {
+    mixed: Symbol('mixed'),
     root,
+    getImageByHash: (h) => (images.has(h) ? { hash: h, getBytesAsync: async () => images.get(h) } : null),
     currentPage: page1,
     async loadAllPagesAsync() {},
     createFrame: () => created(new FrameNode()),
@@ -238,7 +290,11 @@ export function createFakeFigma() {
       frame.remove();
       return c;
     },
-    createImage: () => ({ hash: `img${seq++}` }),
+    createImage: (bytes) => {
+      const hash = `img${seq++}`;
+      images.set(hash, bytes);
+      return { hash };
+    },
     async getNodeByIdAsync(id) {
       const n = registry.get(id);
       return n && !n.removed ? n : null;
@@ -256,9 +312,15 @@ export function createFakeFigma() {
       async getLocalVariablesAsync() {
         return variables.filter((v) => !v.removed);
       },
+      async getVariableByIdAsync(id) {
+        return variables.find((v) => v.id === id && !v.removed) ?? null;
+      },
+      async getVariableCollectionByIdAsync(id) {
+        return collections.find((c) => c.id === id) ?? null;
+      },
       createVariableCollection(name) {
         const c = new Node('VARIABLE_COLLECTION');
-        Object.assign(c, { name, modes: [{ modeId: 'm1', name: 'Mode 1' }] });
+        Object.assign(c, { name, modes: [{ modeId: 'm1', name: 'Mode 1' }], defaultModeId: 'm1' });
         collections.push(c);
         return c;
       },
@@ -276,6 +338,7 @@ export function createFakeFigma() {
           setVariableCodeSyntax(p, s) {
             this.codeSyntax[p] = s;
           },
+          description: '',
           remove() {
             this.removed = true;
           },

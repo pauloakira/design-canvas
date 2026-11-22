@@ -75,6 +75,8 @@ export interface FOverride {
 export interface FigmaSpec {
   /** Design Canvas node id — stable identity used to update in place. */
   key: string;
+  /** Figma node id (only in payloads coming from Figma). */
+  figmaId?: string;
   kind: 'FRAME' | 'COMPONENT' | 'INSTANCE' | 'RECTANGLE' | 'ELLIPSE' | 'TEXT' | 'SVG';
   name: string;
   x: number;
