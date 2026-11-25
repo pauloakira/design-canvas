@@ -34,6 +34,16 @@ Options (flags or env vars): `--port` / `DESIGN_CANVAS_PORT` (default 4410),
 `--dir` / `DESIGN_CANVAS_DIR` (where design files live, default `./designs`),
 `--project` / `DESIGN_CANVAS_PROJECT` (folder the in-app agents may read, default cwd).
 
+### Install it as an app
+
+Design Canvas is an installable web app, so it can run in its own window with a Dock icon instead of a browser tab.
+
+1. Open http://localhost:4410 in Chrome (or Edge, Brave or Arc).
+2. Click the install icon at the right end of the address bar, or open the ⋮ menu and choose **Cast, save, and share → Install page as app…**
+3. Launch **Design Canvas** from the Dock, Launchpad or Spotlight. Designs and folders open inside the app window.
+
+The app window is only a view onto the local server. The server, and the MCP endpoint your agents use, keep running when the window is closed. Nothing is cached offline, so the server must be running for the app to open. Safari works too: **File → Add to Dock**.
+
 ## Connect your coding agent
 
 The server must be running. Then, once:
