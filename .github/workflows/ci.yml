@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Figma plugin is up to date
+        run: |
+          npm run build:figma
+          if ! git diff --exit-code -- figma-plugin/code.js; then
+            echo "::error file=figma-plugin/code.js::figma-plugin/code.js is out of date. Run 'npm run build:figma' and commit the result."
+            exit 1
+          fi
+
+      - name: MCP smoke test
+        env:
+          PORT: 4430
+        run: |
+          npm start -- --port "$PORT" --dir "$RUNNER_TEMP/designs" > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf "http://localhost:$PORT/" > /dev/null && break
+            sleep 1
+          done
+          node scripts/mcp-smoke.mjs --port "$PORT"
+          node scripts/mcp-smoke.mjs --port "$PORT" --stdio
+
+      - name: Server log
+        if: failure()
+        run: cat "$RUNNER_TEMP/server.log" 2>/dev/null || true
