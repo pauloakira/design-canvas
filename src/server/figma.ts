@@ -7,6 +7,7 @@ import type { Hub } from './hub.ts';
 import { ASSETS_DIR, loadSettings, PUBLIC_URL, saveSettings } from './config.ts';
 import { buildFigmaExport } from '../shared/figma.ts';
 import { importFromFigma, type FigmaImportPayload } from '../shared/figma-import.ts';
+import { resolvePageId } from '../shared/doc.ts';
 
 /**
  * Bridge to the Design Canvas Figma plugin (figma-plugin/).
@@ -96,6 +97,7 @@ export function createFigmaBridge(store: DocStore, hub: Hub, rootDir: string) {
         pages: doc.pageOrder.map((pid) => ({
           id: pid,
           name: doc.pages[pid].name,
+          ...(doc.pages[pid].kind === 'section' ? { section: true } : {}),
           layers: doc.pages[pid].children
             .map((id) => doc.nodes[id])
             .filter(Boolean)
@@ -180,7 +182,7 @@ export function createFigmaBridge(store: DocStore, hub: Hub, rootDir: string) {
         hub.broadcast(null, { t: 'docs-changed' });
       }
       const doc = store.getDoc(docId);
-      const pageId = req.body?.pageId && doc.pages[req.body.pageId] ? String(req.body.pageId) : doc.pageOrder[0];
+      const pageId = resolvePageId(doc, req.body?.pageId ? String(req.body.pageId) : null);
       const { result } = store.mutate(docId, { kind: 'agent', name: 'Figma', tool: 'import' }, (d) => importFromFigma(d, payload, { pageId }));
       hub.broadcast(docId, { t: 'reveal', ids: result.rootIds, agent: 'Figma' });
       hub.broadcast(docId, { t: 'figma-imported', created: result.created, updated: result.updated, removed: result.removed, warnings: result.warnings.slice(0, 50) });
@@ -229,7 +231,7 @@ export function createFigmaBridge(store: DocStore, hub: Hub, rootDir: string) {
   function send(docId: string, nodeIds: string[], pageId?: string): { id: string; pluginConnected: boolean; layers: number } {
     const doc = store.getDoc(docId);
     const ids = nodeIds.filter((id) => doc.nodes[id]);
-    const page = pageId && doc.pages[pageId] ? pageId : doc.pageOrder[0];
+    const page = resolvePageId(doc, pageId);
     const layers = ids.length ? ids.length : (doc.pages[page]?.children.length ?? 0);
     if (!layers) throw new Error('Nothing to send: select layers or use a page that has content.');
     const label = ids.length === 1 ? doc.nodes[ids[0]].name : ids.length ? `${doc.name} (${ids.length} layers)` : `${doc.name} — ${doc.pages[page].name}`;

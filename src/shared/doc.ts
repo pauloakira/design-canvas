@@ -31,6 +31,35 @@ export function isPageId(doc: DesignDoc, id: string): boolean {
   return Object.prototype.hasOwnProperty.call(doc.pages, id);
 }
 
+export function isSection(doc: DesignDoc, id: string): boolean {
+  return doc.pages[id]?.kind === 'section';
+}
+
+/** Pages that hold layers (everything in pageOrder except sections). */
+export function contentPageIds(doc: DesignDoc): string[] {
+  return doc.pageOrder.filter((p) => doc.pages[p] && doc.pages[p].kind !== 'section');
+}
+
+/** First page that can hold layers: the default page to open or write to. */
+export function firstPageId(doc: DesignDoc): string {
+  return contentPageIds(doc)[0] ?? doc.pageOrder[0];
+}
+
+/** A usable page id: `id` if it is a real (non-section) page, else the first page. */
+export function resolvePageId(doc: DesignDoc, id?: string | null): string {
+  return id && doc.pages[id] && doc.pages[id].kind !== 'section' ? id : firstPageId(doc);
+}
+
+/** Section a page belongs to (the nearest section before it), or null. */
+export function sectionOf(doc: DesignDoc, pageId: string): string | null {
+  let current: string | null = null;
+  for (const p of doc.pageOrder) {
+    if (p === pageId) return doc.pages[p]?.kind === 'section' ? null : current;
+    if (doc.pages[p]?.kind === 'section') current = p;
+  }
+  return null;
+}
+
 export function isFrameLike(n: SceneNode | undefined | null): n is FrameNode {
   return !!n && (n.type === 'frame' || n.type === 'component');
 }
@@ -203,7 +232,7 @@ export function repairDoc(doc: DesignDoc): { nodes: Set<string>; pages: Set<stri
 
   for (const [cid, kids] of containers) {
     const clean = kids.filter((k) => {
-      const ok = !!doc.nodes[k] && doc.nodes[k].parentId === cid && !seen.has(k);
+      const ok = !!doc.nodes[k] && doc.nodes[k].parentId === cid && !seen.has(k) && doc.pages[cid]?.kind !== 'section';
       if (ok) seen.add(k);
       return ok;
     });
@@ -220,7 +249,7 @@ export function repairDoc(doc: DesignDoc): { nodes: Set<string>; pages: Set<stri
   // Orphans: nodes not referenced by their parent.
   for (const n of Object.values(doc.nodes)) {
     if (seen.has(n.id)) continue;
-    const parentIsPage = !!doc.pages[n.parentId];
+    const parentIsPage = !!doc.pages[n.parentId] && doc.pages[n.parentId].kind !== 'section';
     const parentNode = doc.nodes[n.parentId];
     if (parentIsPage) {
       doc.pages[n.parentId] = { ...doc.pages[n.parentId], children: [...doc.pages[n.parentId].children, n.id] };
@@ -231,8 +260,8 @@ export function repairDoc(doc: DesignDoc): { nodes: Set<string>; pages: Set<stri
       changedNodes.add(parentNode.id);
       seen.add(n.id);
     } else {
-      // Parent vanished: move to first page.
-      const pid = doc.pageOrder[0];
+      // Parent vanished (or is a section): move to first page.
+      const pid = firstPageId(doc);
       doc.nodes[n.id] = { ...n, parentId: pid };
       doc.pages[pid] = { ...doc.pages[pid], children: [...doc.pages[pid].children, n.id] };
       changedNodes.add(n.id);

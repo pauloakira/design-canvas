@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DESIGN_GUIDE } from '../shared/guide.ts';
 import { outline, pageOutline } from '../shared/outline.ts';
-import { uid } from '../shared/doc.ts';
+import { resolvePageId, uid } from '../shared/doc.ts';
 import { apiKey, loadSettings, PORT, PROJECT_DIR } from './config.ts';
 import { runTool, toolJsonSchemas, type ToolContext, type ToolResult } from './tools.ts';
 import type { DocStore } from './store.ts';
@@ -205,7 +205,7 @@ function contextBlock(store: DocStore, hub: Hub, docId?: string): string {
   if (!id || !store.exists(id)) return '[Design Canvas] No document is open.';
   const doc = store.getDoc(id);
   const sel = hub.selection(id);
-  const pageId = sel?.pageId && doc.pages[sel.pageId] ? sel.pageId : doc.pageOrder[0];
+  const pageId = resolvePageId(doc, sel?.pageId);
   const ids = (sel?.ids ?? []).filter((i) => doc.nodes[i]);
   const lines = [`[Design Canvas context] Document "${doc.name}" (documentId: ${doc.id}), current page "${doc.pages[pageId].name}" (pageId: ${pageId}).`];
   if (ids.length) lines.push(`Selected layers:\n${outline(doc, ids, 2, 60)}`);

@@ -50,6 +50,7 @@ export function createNodes(
   opts: { autoPlace?: boolean } = {},
 ): CreateResult {
   const result: CreateResult = { ids: [], created: [], warnings: [] };
+  if (doc.pages[parentId]?.kind === 'section') throw new Error(`"${doc.pages[parentId].name}" is a page section, which can't hold layers. Use a page id.`);
   if (!isPageId(doc, parentId) && !isFrameLike(doc.nodes[parentId])) {
     throw new Error(`Parent "${parentId}" is not a page, frame or component.`);
   }
@@ -164,6 +165,7 @@ export function updateNode(doc: DesignDoc, id: string, input: Record<string, any
 }
 
 export function moveNodes(doc: DesignDoc, ids: string[], parentId: string, index?: number, pos?: { x?: number; y?: number }) {
+  if (doc.pages[parentId]?.kind === 'section') throw new Error(`"${doc.pages[parentId].name}" is a page section, which can't hold layers. Use a page id.`);
   if (!isPageId(doc, parentId) && !isFrameLike(doc.nodes[parentId])) throw new Error(`Target "${parentId}" cannot contain children`);
   const list = topLevelOnly(doc, ids.filter((id) => doc.nodes[id]));
   let i = 0;
@@ -436,15 +438,56 @@ export function deleteNodes(doc: DesignDoc, ids: string[]) {
   for (const id of topLevelOnly(doc, ids)) deleteNode(doc, id);
 }
 
-export function addPage(doc: DesignDoc, name?: string): string {
+export function addPage(doc: DesignDoc, name?: string, opts: { section?: boolean; after?: string } = {}): string {
   const id = 'p_' + uid(8);
-  doc.pages[id] = { id, name: name ?? `Page ${doc.pageOrder.length + 1}`, children: [] };
-  doc.pageOrder.push(id);
+  const pages = doc.pageOrder.filter((p) => doc.pages[p]?.kind !== 'section').length;
+  doc.pages[id] = opts.section
+    ? { id, name: name?.trim() || 'Section', children: [], kind: 'section' }
+    : { id, name: name ?? `Page ${pages + 1}`, children: [] };
+  const at = opts.after ? doc.pageOrder.indexOf(opts.after) : -1;
+  if (at >= 0) doc.pageOrder.splice(at + 1, 0, id);
+  else doc.pageOrder.push(id);
   return id;
 }
 
+export function addSection(doc: DesignDoc, name?: string, opts: { after?: string } = {}): string {
+  return addPage(doc, name, { ...opts, section: true });
+}
+
+/** A section id plus the pages it groups (up to the next section). Pages alone are just [id]. */
+export function sectionBlock(doc: DesignDoc, id: string): string[] {
+  if (doc.pages[id]?.kind !== 'section') return [id];
+  const i = doc.pageOrder.indexOf(id);
+  const out = [id];
+  for (let j = i + 1; j < doc.pageOrder.length && doc.pages[doc.pageOrder[j]]?.kind !== 'section'; j++) out.push(doc.pageOrder[j]);
+  return out;
+}
+
+/**
+ * Reorders the page list. `ids` move together, in their current order, to just before
+ * `beforeId` (or to the end when it is null). A section moves with the pages it groups.
+ */
+export function movePages(doc: DesignDoc, ids: string[], beforeId: string | null) {
+  const moving = new Set(ids.filter((id) => doc.pages[id]).flatMap((id) => sectionBlock(doc, id)));
+  if (!moving.size || (beforeId && moving.has(beforeId))) return;
+  const block = doc.pageOrder.filter((p) => moving.has(p));
+  const rest = doc.pageOrder.filter((p) => !moving.has(p));
+  const at = beforeId ? rest.indexOf(beforeId) : rest.length;
+  if (at < 0) throw new Error(`Page "${beforeId}" not found`);
+  rest.splice(at, 0, ...block);
+  doc.pageOrder = rest;
+}
+
 export function deletePage(doc: DesignDoc, pageId: string) {
-  if (doc.pageOrder.length <= 1) throw new Error('A document needs at least one page');
+  const page = doc.pages[pageId];
+  if (!page) throw new Error(`Page "${pageId}" not found`);
+  if (page.kind === 'section') {
+    // Removing a section keeps its pages; they join the section above.
+    delete doc.pages[pageId];
+    doc.pageOrder = doc.pageOrder.filter((p) => p !== pageId);
+    return;
+  }
+  if (doc.pageOrder.filter((p) => doc.pages[p]?.kind !== 'section').length <= 1) throw new Error('A document needs at least one page');
   for (const id of [...(doc.pages[pageId]?.children ?? [])]) deleteNode(doc, id);
   delete doc.pages[pageId];
   doc.pageOrder = doc.pageOrder.filter((p) => p !== pageId);

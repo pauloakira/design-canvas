@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import type { DesignDoc, SceneNode } from '../shared/types.ts';
-import { descendants, findNodes, isFrameLike, isPageId, pageOf } from '../shared/doc.ts';
+import { descendants, findNodes, firstPageId, isFrameLike, isPageId, isSection, pageOf, resolvePageId } from '../shared/doc.ts';
 import {
   absolutePosition,
   addPage,
@@ -90,10 +90,28 @@ export function resolveDocId(ctx: ToolContext, requested?: string, createIfNone 
   return docs[0].id;
 }
 
+/** "Pages: …" for get_document, one line per section when the document has sections. */
+function pagesLine(doc: DesignDoc, shown: string): string {
+  const page = (p: string) => `"${doc.pages[p].name}" #${p}${p === shown ? ' (shown)' : ''}`;
+  if (!doc.pageOrder.some((p) => isSection(doc, p))) return `Pages: ${doc.pageOrder.map(page).join(', ')}`;
+  const lines: string[] = [];
+  let current: string[] = [];
+  let label = '(no section)';
+  const flush = () => (current.length || label !== '(no section)') && lines.push(`  ${label}: ${current.join(', ') || '(no pages)'}`);
+  for (const p of doc.pageOrder) {
+    if (isSection(doc, p)) {
+      flush();
+      current = [];
+      label = `Section "${doc.pages[p].name}" #${p}`;
+    } else current.push(page(p));
+  }
+  flush();
+  return `Pages (grouped by section; sections hold no layers):\n${lines.join('\n')}`;
+}
+
 function currentPage(ctx: ToolContext, doc: DesignDoc): string {
   const sel = ctx.hub.selection(doc.id);
-  if (sel?.pageId && doc.pages[sel.pageId]) return sel.pageId;
-  return doc.pageOrder[0];
+  return resolvePageId(doc, sel?.pageId);
 }
 
 function origin(ctx: ToolContext, tool: string) {
@@ -155,7 +173,7 @@ export const TOOLS: ToolDef[] = [
     handler: (a, ctx) => {
       const doc = ctx.store.create(a.name, undefined, a.folder);
       ctx.hub.broadcast(null, { t: 'docs-changed' });
-      return json({ id: doc.id, name: doc.name, folder: ctx.store.folderOfDoc(doc.id) || '(root)', pageId: doc.pageOrder[0], url: `${PUBLIC_URL}/d/${doc.id}` });
+      return json({ id: doc.id, name: doc.name, folder: ctx.store.folderOfDoc(doc.id) || '(root)', pageId: firstPageId(doc), url: `${PUBLIC_URL}/d/${doc.id}` });
     },
   },
   {
@@ -214,11 +232,12 @@ export const TOOLS: ToolDef[] = [
     handler: (a, ctx) => {
       const docId = resolveDocId(ctx, a.documentId);
       const doc = ctx.store.getDoc(docId);
+      if (a.pageId && isSection(doc, a.pageId)) throw new Error(`"${doc.pages[a.pageId].name}" is a page section, not a page. Pass one of its pages.`);
       const pageId = a.pageId && doc.pages[a.pageId] ? a.pageId : currentPage(ctx, doc);
       const comps = Object.values(doc.nodes).filter((n) => n.type === 'component');
       const parts = [
         `Document "${doc.name}" #${doc.id}`,
-        `Pages: ${doc.pageOrder.map((p) => `"${doc.pages[p].name}" #${p}${p === pageId ? ' (shown)' : ''}`).join(', ')}`,
+        pagesLine(doc, pageId),
         Object.keys(doc.variables).length
           ? `Tokens: ${Object.values(doc.variables)
               .map((v) => `$${v.name}=${v.value}`)
@@ -244,7 +263,7 @@ export const TOOLS: ToolDef[] = [
       const doc = ctx.store.getDoc(docId);
       if (!sel) return text(`No editor is open for document "${doc.name}" #${doc.id}. Ask the user to open ${PUBLIC_URL}/d/${doc.id}.`);
       const ids = sel.ids.filter((id) => doc.nodes[id]);
-      if (!ids.length) return text(`Document "${doc.name}" #${doc.id}, page #${sel.pageId}: nothing selected.\n\n${pageOutline(doc, sel.pageId ?? doc.pageOrder[0], 2)}`);
+      if (!ids.length) return text(`Document "${doc.name}" #${doc.id}, page #${sel.pageId}: nothing selected.\n\n${pageOutline(doc, resolvePageId(doc, sel.pageId), 2)}`);
       const threads = ids.flatMap((id) => threadsForNode(doc, id));
       const note = threads.length ? `\n\n${threads.length} open comment(s) on the selection — see get_comments.` : '';
       return text(`Document "${doc.name}" #${doc.id}. Selected ${ids.length} layer(s):\n${outline(doc, ids, 6)}${note}`);
@@ -700,12 +719,25 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'create_page',
     title: 'Create page',
-    description: 'Add a page to the document.',
-    shape: { documentId: docIdArg, name: z.string() },
+    description:
+      'Add a page to the document, or a page section: a labeled divider in the page list that groups the pages after it, up to the next section (e.g. "Ideation", "Ready for dev"). Sections hold no layers.',
+    shape: {
+      documentId: docIdArg,
+      name: z.string(),
+      section: z.boolean().optional().describe('Create a section header instead of a page'),
+      after: z.string().optional().describe('Insert right after this page or section id (default: at the end)'),
+    },
     handler: (a, ctx) => {
       const docId = resolveDocId(ctx, a.documentId);
-      const { result } = ctx.store.mutate(docId, origin(ctx, 'create_page'), (d) => addPage(d, a.name));
-      return text(`Created page "${a.name}" #${result}. Use it as parentId in create_nodes.`);
+      const { result } = ctx.store.mutate(docId, origin(ctx, 'create_page'), (d) => {
+        if (a.after && !d.pages[a.after]) throw new Error(`Page "${a.after}" not found`);
+        return addPage(d, a.name, { section: !!a.section, after: a.after });
+      });
+      return text(
+        a.section
+          ? `Created section "${a.name}" #${result}. Pages created after it (use after: "${result}") belong to it.`
+          : `Created page "${a.name}" #${result}. Use it as parentId in create_nodes.`,
+      );
     },
   },
   {

@@ -92,7 +92,7 @@ Then, from your project:
 | `find_nodes`, `get_node` (full JSON) | `set_variables` (design tokens → CSS variables) |
 | `get_design_context` (React+Tailwind / HTML / React code + tokens, fonts, assets, mapped components) | `create_component` (+ Code Connect), `create_instance` |
 | `get_screenshot` (PNG rendered by the open editor) | `import_html` (HTML / Tailwind → editable auto-layout layers) |
-| `get_variables` | `create_document` (optionally in a folder), `update_document` (rename / move to folder), `create_page`, `select_nodes` (reveal in the editor) |
+| `get_variables` | `create_document` (optionally in a folder), `update_document` (rename / move to folder), `create_page` (or a page section), `select_nodes` (reveal in the editor) |
 | `get_comments` (review threads, pinned layers, resolved state) | `add_comment` (new thread or reply), `resolve_comment` |
 | | `send_to_figma` (real Figma layers, components and variables via the plugin) |
 
@@ -183,7 +183,8 @@ files in the project folder, e.g. to match your existing UI. API keys are stored
 - Components & instances with text/visibility overrides, detach, and **Code Connect** (map to `@/components/ui/button`)
 - Design tokens (`$primary`, `$space-4`) usable in any field, exported as CSS variables
 - Folders on the home screen: nest them, drag designs and folders between them (or onto the breadcrumb), rename, search; deleting a folder keeps its designs
-- Pages, layers panel with drag-and-drop, rename, hide, lock
+- Pages, with **page sections**: labeled dividers that group pages ("Ideation", "Ready for dev") instead of empty placeholder pages; collapse them, drag pages between them, drag a section to move its pages
+- Layers panel with drag-and-drop, rename, hide, lock
 - Undo/redo, copy/paste (across tabs and documents), context menu, keyboard shortcuts (⌘/)
 - Dev mode: React + Tailwind, HTML + CSS and React (inline styles) code; CSS inspect; one-click "hand off to your agent" prompts
 - Comments like Figma: press **C** and click to pin a thread to any layer (it follows the layer), reply, resolve, filter in the Comments panel; agents can read, reply to and resolve them over MCP

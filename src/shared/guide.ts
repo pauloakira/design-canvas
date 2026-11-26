@@ -3,6 +3,7 @@ export const DESIGN_GUIDE = `Design Canvas is a local, Figma-like design tool wh
 
 DOCUMENT MODEL
 - Document → pages → node tree. Node types: frame (container; optional auto layout = flexbox), component (reusable frame), instance (live copy of a component), rect, ellipse, text, image, svg (icons/vectors as raw SVG markup).
+- Pages can be grouped under page sections (labeled dividers in the page list, e.g. "Ideation", "Ready for dev"). A section holds no layers; never use a section id as a parentId. create_page with section:true adds one; get_document lists pages by section.
 - x/y are relative to the parent. Children of an auto-layout frame are placed by the layout (x/y ignored) unless position:"absolute".
 - Size: width/height in px. widthMode/heightMode: "fixed" | "hug" (fit content) | "fill" (stretch inside an auto-layout parent). Shorthand: width:"fill", height:"hug".
 - Auto layout: layout:{mode:"row"|"column", gap, padding: n | [vertical,horizontal] | [top,right,bottom,left], justify:"start"|"center"|"end"|"space-between", align:"start"|"center"|"end"|"stretch", wrap:boolean}. Shorthands on frames: direction, gap, padding, justify, align.

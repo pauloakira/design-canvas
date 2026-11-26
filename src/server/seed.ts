@@ -1,10 +1,11 @@
 import type { DocStore } from './store.ts';
 import { createInstance, createNodes, upsertVariable } from '../shared/ops.ts';
+import { firstPageId } from '../shared/doc.ts';
 
 /** A small starter document that shows off tokens, components and auto layout. */
 export function seedWelcome(store: DocStore) {
   store.create('Welcome to Design Canvas', (d) => {
-    const page = d.pageOrder[0];
+    const page = firstPageId(d);
     for (const v of [
       { name: 'primary', value: '#6366F1', group: 'color' },
       { name: 'primary-foreground', value: '#FFFFFF', group: 'color' },

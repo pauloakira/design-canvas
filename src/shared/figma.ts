@@ -15,7 +15,7 @@
  *  - every node carries a stable key, so sending again updates in place
  */
 import type { Color, DesignDoc, FrameNode, InstanceNode, Num, Paint, SceneNode, Shadow, TextNode, Variable } from './types.ts';
-import { isFrameLike } from './doc.ts';
+import { isFrameLike, resolvePageId } from './doc.ts';
 import { CANVAS_AUTO_LINE_HEIGHT, DEFAULT_FONT, DEFAULT_FONT_SIZE, isTokenRef, sizeMode, tokenName } from './style.ts';
 
 export const FIGMA_FORMAT = 'design-canvas/figma@1';
@@ -680,7 +680,7 @@ function variableSpec(ctx: Ctx, v: Variable): FVariable {
  * Nested selections are reduced to their outermost nodes.
  */
 export function buildFigmaExport(doc: DesignDoc, opts: { nodeIds?: string[]; pageId?: string; assetBase: string }): FigmaExport {
-  const pageId = opts.pageId && doc.pages[opts.pageId] ? opts.pageId : doc.pageOrder[0];
+  const pageId = resolvePageId(doc, opts.pageId);
   let ids = (opts.nodeIds ?? []).filter((id) => doc.nodes[id]);
   if (!ids.length) ids = [...(doc.pages[pageId]?.children ?? [])];
   const set = new Set(ids);

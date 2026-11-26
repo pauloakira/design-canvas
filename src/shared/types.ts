@@ -175,6 +175,9 @@ export interface Page {
   name: string;
   children: string[];
   background?: string;
+  /** "section": a labeled divider in the page list. It has no layers and can't be opened;
+   *  it groups the pages after it, up to the next section. */
+  kind?: 'section';
 }
 
 export type VariableType = 'color' | 'number' | 'string';

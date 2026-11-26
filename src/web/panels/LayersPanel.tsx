@@ -2,9 +2,9 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { ChevronDown, ChevronRight, Component, Diamond, Eye, EyeOff, Frame, Image as ImageIcon, Lock, Unlock, Plus, Square, Circle, Type, PenTool, X, LayoutGrid, Rows3, Columns3 } from 'lucide-react';
-import type { FrameNode, SceneNode } from '../../shared/types.ts';
-import { isAutoLayout, isFrameLike, isPageId, pathOf } from '../../shared/doc.ts';
-import { addPage, deletePage, moveNodes } from '../../shared/ops.ts';
+import type { FrameNode, Page, SceneNode } from '../../shared/types.ts';
+import { firstPageId, isAutoLayout, isFrameLike, isPageId, pathOf } from '../../shared/doc.ts';
+import { addPage, deletePage, moveNodes, movePages } from '../../shared/ops.ts';
 import { commit, getState, setSelection, setState, toast, useEditor } from '../store.ts';
 import { renameNode, toggleLocked, toggleVisible } from '../editor/actions.ts';
 import { zoomToNodes } from '../editor/viewport.ts';
@@ -81,78 +81,220 @@ export function LayersPanel() {
   );
 }
 
+const COLLAPSED_KEY = 'dc:collapsed-sections';
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+const usePagesUI = create<{ collapsed: Record<string, boolean>; drop: { id: string; pos: 'before' | 'after' } | null; dragging: string | null }>(() => ({
+  collapsed: loadCollapsed(),
+  drop: null,
+  dragging: null,
+}));
+function toggleSection(id: string) {
+  const collapsed = { ...usePagesUI.getState().collapsed };
+  if (collapsed[id]) delete collapsed[id];
+  else collapsed[id] = true;
+  usePagesUI.setState({ collapsed });
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed));
+  } catch {}
+}
+
+function openPage(id: string) {
+  setState({ pageId: id, selection: [] });
+  sendPresence(true);
+}
+
+/** Where a drop on `targetId` lands, as the id to insert before (null = end of the list). */
+function dropBefore(order: string[], pages: Record<string, Page>, dragged: string, targetId: string, pos: 'before' | 'after'): string | null {
+  const isSec = (id: string) => pages[id]?.kind === 'section';
+  const i = order.indexOf(targetId);
+  if (pos === 'before') {
+    // A section can only land on a section boundary: before a section, or at the top of the list.
+    if (!isSec(dragged) || isSec(targetId)) return targetId;
+    for (let j = i; j >= 0; j--) if (isSec(order[j])) return order[j];
+    return order[0];
+  }
+  if (!isSec(dragged)) return order[i + 1] ?? null;
+  for (let j = i + 1; j < order.length; j++) if (isSec(order[j])) return order[j];
+  return null;
+}
+
 function PagesList() {
-  const pages = useEditor(useShallow((s) => s.doc?.pageOrder.map((p) => s.doc!.pages[p]) ?? []));
+  const items = useEditor(useShallow((s) => s.doc?.pageOrder.map((p) => s.doc!.pages[p]).filter(Boolean) ?? []));
   const pageId = useEditor((s) => s.pageId);
+  const collapsed = usePagesUI((s) => s.collapsed);
+  const drop = usePagesUI((s) => s.drop);
   const [editing, setEditing] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
-  if (!pages.length) return null;
+  const [menu, setMenu] = useState(false);
+  if (!items.length) return null;
+  const pageCount = items.filter((p) => p.kind !== 'section').length;
+
+  const add = (section: boolean, after?: string) => {
+    let id = '';
+    commit((d) => {
+      // New pages go right after the open page (staying in its section); sections go at the end.
+      id = addPage(d, undefined, { section, after: after ?? (section ? undefined : getState().pageId) });
+    });
+    if (section) setEditing(id);
+    else {
+      openPage(id);
+      setEditing(id);
+    }
+    setMenu(false);
+    if (!open) setOpen(true);
+  };
+  const remove = (p: Page) => {
+    if (p.kind !== 'section' && !confirm(`Delete page "${p.name}" and everything on it?`)) return;
+    try {
+      commit((d) => deletePage(d, p.id));
+      if (getState().pageId === p.id) setState({ pageId: firstPageId(getState().doc!), selection: [] });
+    } catch (err: any) {
+      toast(err.message, { kind: 'error' });
+    }
+  };
+  const rename = (id: string) => (
+    <input
+      autoFocus
+      defaultValue={items.find((p) => p.id === id)?.name}
+      onFocus={(e) => e.target.select()}
+      onClick={(e) => e.stopPropagation()}
+      onBlur={(e) => {
+        const v = e.target.value.trim();
+        if (v) commit((d) => void (d.pages[id] && (d.pages[id].name = v)));
+        setEditing(null);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') (e.target as HTMLInputElement).value = items.find((p) => p.id === id)?.name ?? '';
+        if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
+      }}
+    />
+  );
+  const dnd = (p: Page) => ({
+    draggable: editing !== p.id,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/x-dc-page', p.id);
+      usePagesUI.setState({ dragging: p.id });
+    },
+    onDragOver: (e: React.DragEvent) => {
+      const dragged = usePagesUI.getState().dragging;
+      if (!dragged) return;
+      e.preventDefault();
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const pos = e.clientY < r.top + r.height / 2 ? 'before' : 'after';
+      const cur = usePagesUI.getState().drop;
+      if (cur?.id !== p.id || cur.pos !== pos) usePagesUI.setState({ drop: { id: p.id, pos } });
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      const { dragging, drop } = usePagesUI.getState();
+      usePagesUI.setState({ drop: null, dragging: null });
+      const doc = getState().doc;
+      if (!dragging || !drop || !doc) return;
+      const before = dropBefore(doc.pageOrder, doc.pages, dragging, drop.id, drop.pos);
+      if (before === dragging) return;
+      commit((d) => movePages(d, [dragging], before));
+    },
+    onDragEnd: () => usePagesUI.setState({ drop: null, dragging: null }),
+  });
+
+  // Hide pages inside collapsed sections, except the open one.
+  let hidden = false;
+  const rows: React.ReactNode[] = [];
+  for (const p of items) {
+    const dropCls = drop?.id === p.id ? ` drop-${drop.pos}` : '';
+    if (p.kind === 'section') {
+      hidden = !!collapsed[p.id];
+      rows.push(
+        <div key={p.id} className={`page-section${dropCls}`} data-id={p.id} onClick={() => toggleSection(p.id)} onDoubleClick={() => setEditing(p.id)} {...dnd(p)}>
+          <span className="page-section-chevron">{collapsed[p.id] ? <ChevronRight size={11} /> : <ChevronDown size={11} />}</span>
+          {editing === p.id ? rename(p.id) : <span className="page-section-name">
+              <span>{p.name}</span>
+            </span>}
+          <button
+            className="iconbtn hover-only"
+            title="Add page to this section"
+            onClick={(e) => {
+              e.stopPropagation();
+              const doc = getState().doc!;
+              const i = doc.pageOrder.indexOf(p.id);
+              let last = p.id;
+              for (let j = i + 1; j < doc.pageOrder.length && doc.pages[doc.pageOrder[j]]?.kind !== 'section'; j++) last = doc.pageOrder[j];
+              if (collapsed[p.id]) toggleSection(p.id);
+              add(false, last);
+            }}
+          >
+            <Plus size={12} />
+          </button>
+          <button
+            className="iconbtn hover-only"
+            title="Remove section (keeps its pages)"
+            onClick={(e) => {
+              e.stopPropagation();
+              remove(p);
+            }}
+          >
+            <X size={12} />
+          </button>
+        </div>,
+      );
+      continue;
+    }
+    if (hidden && p.id !== pageId) continue;
+    rows.push(
+      <div key={p.id} className={`page-row ${p.id === pageId ? 'active' : ''}${dropCls}`} data-id={p.id} onClick={() => openPage(p.id)} onDoubleClick={() => setEditing(p.id)} {...dnd(p)}>
+        {editing === p.id ? rename(p.id) : <span>{p.name}</span>}
+        {pageCount > 1 && (
+          <button
+            className="iconbtn hover-only"
+            title="Delete page"
+            onClick={(e) => {
+              e.stopPropagation();
+              remove(p);
+            }}
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>,
+    );
+  }
+
   return (
     <div className="pages">
       <div className="layers-title" onClick={() => setOpen(!open)}>
         <span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Pages
         </span>
-        <button
-          className="iconbtn"
-          title="Add page"
-          onClick={(e) => {
-            e.stopPropagation();
-            let id = '';
-            commit((d) => {
-              id = addPage(d);
-            });
-            setState({ pageId: id, selection: [] });
-          }}
-        >
-          <Plus size={13} />
-        </button>
-      </div>
-      {open &&
-        pages.map((p) => (
-          <div
-            key={p.id}
-            className={`page-row ${p.id === pageId ? 'active' : ''}`}
-            onClick={() => {
-              setState({ pageId: p.id, selection: [] });
-              sendPresence(true);
+        <span className="pages-add">
+          <button
+            className="iconbtn"
+            title="Add page or section"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenu(!menu);
             }}
-            onDoubleClick={() => setEditing(p.id)}
           >
-            {editing === p.id ? (
-              <input
-                autoFocus
-                defaultValue={p.name}
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v) commit((d) => (d.pages[p.id].name = v));
-                  setEditing(null);
-                }}
-                onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && (e.target as HTMLInputElement).blur()}
-              />
-            ) : (
-              <span>{p.name}</span>
-            )}
-            {pages.length > 1 && (
-              <button
-                className="iconbtn hover-only"
-                title="Delete page"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!confirm(`Delete page "${p.name}" and everything on it?`)) return;
-                  try {
-                    commit((d) => deletePage(d, p.id));
-                    if (getState().pageId === p.id) setState({ pageId: getState().doc!.pageOrder[0] });
-                  } catch (err: any) {
-                    toast(err.message, { kind: 'error' });
-                  }
-                }}
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
-        ))}
+            <Plus size={13} />
+          </button>
+          {menu && (
+            <>
+              <div className="menu-backdrop" onPointerDown={(e) => (e.stopPropagation(), setMenu(false))} onClick={(e) => e.stopPropagation()} />
+              <div className="menu" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => add(false)}>New page</button>
+                <button onClick={() => add(true)}>New section</button>
+              </div>
+            </>
+          )}
+        </span>
+      </div>
+      {open && <div onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && usePagesUI.setState({ drop: null })}>{rows}</div>}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { produce } from 'immer';
 import type { DesignDoc, DocPatch, Origin } from '../shared/types.ts';
 import { applyPatch, diffDocs, invertPatch, isEmptyPatch, mergePatches } from '../shared/patch.ts';
-import { isPageId, pageOf } from '../shared/doc.ts';
+import { isPageId, pageOf, resolvePageId } from '../shared/doc.ts';
 
 export type Tool = 'move' | 'hand' | 'frame' | 'rect' | 'ellipse' | 'text' | 'image' | 'comment';
 
@@ -159,7 +159,7 @@ export function loadSnapshot(doc: DesignDoc, clientId: string) {
   const local = pending.reduce((d, p) => applyPatch(d, p.patch), doc);
   const resend = pending;
   pending = [];
-  const pageId = prev.docId === doc.id && doc.pages[prev.pageId] ? prev.pageId : doc.pageOrder[0];
+  const pageId = resolvePageId(doc, prev.docId === doc.id ? prev.pageId : null);
   setState({
     doc: local,
     docId: doc.id,
@@ -200,7 +200,7 @@ export function onRemotePatch(patch: DocPatch, origin: Origin) {
   const local = pending.reduce((d, p) => applyPatch(d, p.patch), serverDoc);
   const s = getState();
   const selection = s.selection.filter((id) => local.nodes[id]);
-  const pageId = local.pages[s.pageId] ? s.pageId : local.pageOrder[0];
+  const pageId = resolvePageId(local, s.pageId);
   const update: Partial<EditorState> = { doc: local, selection, pageId };
   if (origin.kind === 'agent' && patch.nodes) {
     const flash = { ...s.flash };

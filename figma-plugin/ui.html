@@ -390,7 +390,9 @@
         for (const p of d ? d.pages : []) {
           const o = document.createElement('option');
           o.value = p.id;
-          o.textContent = p.name;
+          // Page sections are labels in the list, not pages you can pick.
+          o.textContent = p.section ? '— ' + p.name + ' —' : p.name;
+          if (p.section) o.disabled = true;
           sel.appendChild(o);
         }
         sel.classList.toggle('hidden', !d);
@@ -406,7 +408,9 @@
         for (const p of d ? d.pages : []) {
           const o = document.createElement('option');
           o.value = p.id;
-          o.textContent = p.name;
+          // Page sections are labels in the list, not pages you can pick.
+          o.textContent = p.section ? '— ' + p.name + ' —' : p.name;
+          if (p.section) o.disabled = true;
           sel.appendChild(o);
         }
         renderFrames();
